@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from drone_media_manager.config import ServerSettings
-from drone_media_manager.db.models.core import Job, Worker
+from drone_media_manager.db.models.core import AuditEvent, Job, Worker
 from drone_media_manager.db.session import create_engine_from_settings, session_factory
 from drone_media_manager.domain.enums import JobStatus
 from drone_media_manager.domain.errors import LeaseConflict
@@ -89,6 +89,7 @@ def test_claim_persists_lease_and_only_a_digest(factory: sessionmaker[Session]) 
     assert row["lease_worker_id"] == "worker-0"
     assert row["lease_token_digest"] == hashlib.sha256(result.lease_token.encode()).hexdigest()
     assert result.lease_token not in str(row)
+    assert result.lease_token not in repr(result)
 
 
 def test_claim_oldest_eligible_job_only(factory: sessionmaker[Session]) -> None:
@@ -406,3 +407,114 @@ def test_failure_is_allowed_before_first_progress(factory: sessionmaker[Session]
         result = JobRepository(session, clock=lambda: NOW).fail(initial.id, "worker-0", initial.lease_token, 1, "PREFLIGHT_FAILED")
     assert result.status == JobStatus.FAILED
     assert snapshot(factory)["error"] == "PREFLIGHT_FAILED"
+
+
+@pytest.mark.parametrize(
+    ("operation", "expected_status", "expected_revision"),
+    [
+        ("claim", "LEASED", 1),
+        ("renew", "LEASED", 2),
+        ("progress", "RUNNING", 2),
+        ("complete", "COMPLETE", 3),
+        ("fail", "FAILED", 2),
+        ("interrupt", "INTERRUPTED", 2),
+        ("reconcile", "PENDING", 3),
+    ],
+)
+def test_mutation_hook_persists_audit_with_each_job_mutation(
+    factory: sessionmaker[Session], operation: str, expected_status: str, expected_revision: int
+) -> None:
+    seed(factory)
+    initial = None if operation == "claim" else claim(factory)
+    with factory() as session:
+        setup = JobRepository(session, clock=lambda: NOW)
+        if operation == "complete":
+            setup.progress(initial.id, "worker-0", initial.lease_token, 1, 0.5)
+        if operation == "reconcile":
+            setup.interrupt_expired(NOW + timedelta(seconds=30))
+
+        def audit(transaction: Session, job: Job) -> None:
+            assert transaction is session
+            transaction.add(AuditEvent(
+                actor="worker-0", action=operation, entity_type="job", entity_id=job.id,
+                result=job.status, details_json=str(job.revision), correlation_id="request-1",
+            ))
+
+        repository = JobRepository(session, clock=lambda: NOW, on_mutation=audit)
+        if operation == "claim":
+            repository.claim("worker-0", {"ingest"}, 30)
+        elif operation == "renew":
+            repository.renew(initial.id, "worker-0", initial.lease_token, 1, 60)
+        elif operation == "progress":
+            repository.progress(initial.id, "worker-0", initial.lease_token, 1, 0.5)
+        elif operation == "complete":
+            repository.complete(initial.id, "worker-0", initial.lease_token, 2)
+        elif operation == "fail":
+            repository.fail(initial.id, "worker-0", initial.lease_token, 1, "PREFLIGHT_FAILED")
+        elif operation == "interrupt":
+            repository.interrupt_expired(NOW + timedelta(seconds=30))
+        else:
+            repository.reconcile(initial.id, 2)
+        assert not session.in_transaction()
+
+    with factory() as session:
+        event = session.scalars(select(AuditEvent)).one()
+        job = session.get(Job, "job-1")
+        assert event.action == operation
+        assert event.entity_id == "job-1"
+        assert event.result == expected_status
+        assert event.details_json == str(expected_revision)
+        assert job.status == expected_status
+        assert job.revision == expected_revision
+
+
+@pytest.mark.parametrize("failure", [None, "audit_insert", "hook_exception"])
+def test_claim_hook_commits_or_rolls_back_job_worker_and_audit_together(
+    factory: sessionmaker[Session], failure: str | None
+) -> None:
+    seed(factory)
+    before = snapshot(factory)
+    if failure == "audit_insert":
+        with factory.begin() as session:
+            session.execute(text("CREATE TRIGGER reject_audit BEFORE INSERT ON audit_events BEGIN SELECT RAISE(ABORT, 'audit rejected'); END"))
+
+    def audit_and_mark_busy(session: Session, job: Job) -> None:
+        worker = session.get(Worker, "worker-0")
+        worker.status = "BUSY"
+        session.flush()
+        # The lease and worker have been written, but other connections cannot
+        # observe either before this unit of work commits.
+        assert snapshot(factory) == before
+        with factory() as observer:
+            assert observer.get(Worker, "worker-0").status == "OFFLINE"
+        session.add(AuditEvent(
+            actor="worker-0", action="claim", entity_type="job", entity_id=job.id,
+            result="success", correlation_id="request-1",
+        ))
+        if failure == "hook_exception":
+            session.flush()
+            raise RuntimeError("hook failed")
+
+    with factory() as session:
+        repository = JobRepository(session, clock=lambda: NOW, on_mutation=audit_and_mark_busy)
+        if failure is None:
+            assert repository.claim("worker-0", {"ingest"}, 30) is not None
+        elif failure == "audit_insert":
+            with pytest.raises(IntegrityError, match="audit rejected"):
+                repository.claim("worker-0", {"ingest"}, 30)
+        else:
+            with pytest.raises(RuntimeError, match="hook failed"):
+                repository.claim("worker-0", {"ingest"}, 30)
+        assert not session.in_transaction()
+
+    with factory() as session:
+        worker = session.get(Worker, "worker-0")
+        audit_events = session.scalars(select(AuditEvent)).all()
+        if failure is None:
+            assert snapshot(factory)["status"] == "LEASED"
+            assert worker.status == "BUSY"
+            assert len(audit_events) == 1
+        else:
+            assert snapshot(factory) == before
+            assert worker.status == "OFFLINE"
+            assert audit_events == []

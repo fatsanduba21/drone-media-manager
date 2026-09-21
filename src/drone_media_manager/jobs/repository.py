@@ -24,6 +24,8 @@ from drone_media_manager.domain.errors import LeaseConflict
 from drone_media_manager.jobs.transitions import assert_job_transition
 from drone_media_manager.time import utc_now
 
+MutationHook = Callable[[Session, Job], None]
+
 
 @dataclass(frozen=True)
 class ClaimedJob:
@@ -62,9 +64,26 @@ def _snapshot(job: Job, token: str | None = None) -> ClaimedJob:
 
 
 class JobRepository:
-    def __init__(self, session: Session, *, clock: Callable[[], datetime] = utc_now) -> None:
+    """Own transactions while allowing related writes through ``on_mutation``.
+
+    The optional hook receives the same session and the mutated job, once per
+    changed job, before commit. It may add an audit row or update a worker;
+    it must not commit, roll back, or perform external I/O. Any hook or flush
+    failure rolls back all writes in the operation. Empty claims, rejected
+    requests and empty expiry sweeps do not invoke the hook.
+    """
+
+    def __init__(
+        self, session: Session, *, clock: Callable[[], datetime] = utc_now,
+        on_mutation: MutationHook | None = None,
+    ) -> None:
         self.session = session
         self.clock = clock
+        self.on_mutation = on_mutation
+
+    def _before_commit(self, job: Job) -> None:
+        if self.on_mutation is not None:
+            self.on_mutation(self.session, job)
 
     @contextmanager
     def _transaction(self) -> Iterator[None]:
@@ -108,6 +127,7 @@ class JobRepository:
             job.revision += 1
             job.attempts += 1
             job.updated_at = now
+            self._before_commit(job)
             result = _snapshot(job, token)
         return result
 
@@ -142,6 +162,7 @@ class JobRepository:
             job.lease_expires_at = max(_utc(job.lease_expires_at), now + timedelta(seconds=lease_seconds))
             job.revision += 1
             job.updated_at = now
+            self._before_commit(job)
             result = _snapshot(job)
         return result
 
@@ -161,6 +182,7 @@ class JobRepository:
             job.progress = progress
             job.revision += 1
             job.updated_at = now
+            self._before_commit(job)
             result = _snapshot(job)
         return result
 
@@ -185,6 +207,7 @@ class JobRepository:
                 job.lease_worker_id = None
                 job.lease_token_digest = None
                 job.lease_expires_at = None
+                self._before_commit(job)
             ids = [job.id for job in jobs]
         return ids
 
@@ -217,6 +240,7 @@ class JobRepository:
             job.lease_worker_id = None
             job.lease_token_digest = None
             job.lease_expires_at = None
+            self._before_commit(job)
             result = _snapshot(job)
         return result
 
@@ -234,5 +258,6 @@ class JobRepository:
             job.status = JobStatus.PENDING
             job.revision += 1
             job.updated_at = _utc(self.clock())
+            self._before_commit(job)
             result = _snapshot(job)
         return result
