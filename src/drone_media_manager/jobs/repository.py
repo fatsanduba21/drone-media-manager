@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from drone_media_manager.db.models.core import Job, Worker
 from drone_media_manager.domain.enums import JobStatus
-from drone_media_manager.domain.errors import LeaseConflict
+from drone_media_manager.domain.errors import LeaseConflict, LeaseConflictReason
 from drone_media_manager.jobs.transitions import assert_job_transition
 from drone_media_manager.time import utc_now
 
@@ -104,7 +104,17 @@ class JobRepository:
         with self._transaction():
             now = _utc(self.clock())
             if self.session.get(Worker, worker_id) is None:
-                raise LeaseConflict("Unknown worker")
+                raise LeaseConflict(LeaseConflictReason.INVALID_LEASE)
+            active_job_id = self.session.scalar(
+                select(Job.id)
+                .where(
+                    Job.lease_worker_id == worker_id,
+                    Job.status.in_((JobStatus.LEASED, JobStatus.RUNNING)),
+                )
+                .limit(1)
+            )
+            if active_job_id is not None:
+                return None
             job = self.session.scalar(
                 select(Job)
                 .where(
@@ -135,17 +145,30 @@ class JobRepository:
         self, job_id: str, worker_id: str, token: str, revision: int, now: datetime
     ) -> Job:
         job = self.session.get(Job, job_id, populate_existing=True)
+        supplied_digest = hashlib.sha256(token.encode()).hexdigest()
+        stored_digest = (
+            job.lease_token_digest
+            if job is not None and job.lease_token_digest is not None
+            else "0" * 64
+        )
+        token_matches = hmac.compare_digest(stored_digest, supplied_digest)
+        valid_identity = (
+            job is not None
+            and job.status in (JobStatus.LEASED, JobStatus.RUNNING)
+            and job.lease_worker_id == worker_id
+            and job.lease_token_digest is not None
+            and token_matches
+        )
+        if not valid_identity:
+            raise LeaseConflict(LeaseConflictReason.INVALID_LEASE)
+        assert job is not None
+        if job.revision != revision:
+            raise LeaseConflict(LeaseConflictReason.STALE_REVISION)
         if (
-            job is None
-            or job.status not in (JobStatus.LEASED, JobStatus.RUNNING)
-            or job.lease_worker_id != worker_id
-            or job.revision != revision
-            or job.lease_expires_at is None
+            job.lease_expires_at is None
             or _utc(job.lease_expires_at) <= now
-            or job.lease_token_digest is None
-            or not hmac.compare_digest(job.lease_token_digest, hashlib.sha256(token.encode()).hexdigest())
         ):
-            raise LeaseConflict("Lease ownership, revision or expiry does not match")
+            raise LeaseConflict(LeaseConflictReason.EXPIRED_LEASE)
         return job
 
     def renew(
@@ -252,8 +275,10 @@ class JobRepository:
         """
         with self._transaction():
             job = self.session.get(Job, job_id, populate_existing=True)
-            if job is None or job.revision != expected_revision:
-                raise LeaseConflict("Reconciliation revision does not match")
+            if job is None:
+                raise LeaseConflict(LeaseConflictReason.INVALID_LEASE)
+            if job.revision != expected_revision:
+                raise LeaseConflict(LeaseConflictReason.STALE_REVISION)
             assert_job_transition(JobStatus(job.status), JobStatus.PENDING)
             job.status = JobStatus.PENDING
             job.revision += 1

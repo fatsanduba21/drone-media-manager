@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials
@@ -72,26 +71,6 @@ def _authenticate(
     with session_factory() as session:
         authenticated = require_worker(session, worker_id, credentials)
         return authenticated.capabilities
-
-
-def _utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-
-
-def _lease_error(
-    session_factory: Callable[[], Session], job_id: str, request: LeaseMutation
-) -> HTTPException:
-    with session_factory() as session:
-        job = session.get(Job, job_id)
-        if job is not None and job.revision != request.revision:
-            return HTTPException(status_code=409, detail={"code": "stale_revision"})
-        if (
-            job is not None
-            and job.lease_expires_at is not None
-            and _utc(job.lease_expires_at) <= utc_now()
-        ):
-            return HTTPException(status_code=409, detail={"code": "expired_lease"})
-    return HTTPException(status_code=409, detail={"code": "invalid_lease"})
 
 
 def _sanitize_error(value: str) -> str:
@@ -195,7 +174,9 @@ def job_router(session_factory: Callable[[], Session]) -> APIRouter:
                     status_code=409, detail={"code": "invalid_transition"}
                 ) from error
             except LeaseConflict as error:
-                raise _lease_error(session_factory, job_id, request) from error
+                raise HTTPException(
+                    status_code=409, detail={"code": error.reason.value}
+                ) from error
         return _mutation_response(job)
 
     @router.post("/{job_id}/progress", response_model=JobMutationResponse)

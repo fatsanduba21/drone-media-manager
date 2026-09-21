@@ -14,6 +14,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
+from httpx import Response
 from pydantic import SecretStr
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -191,6 +192,51 @@ def test_no_eligible_job_returns_204_without_success_audit(
         assert session.scalars(select(AuditEvent).where(AuditEvent.action == "job.claim")).all() == []
 
 
+def test_worker_cannot_claim_second_job_until_active_lease_finishes(
+    api: tuple[TestClient, sessionmaker[Session], ServerSettings],
+) -> None:
+    client, factory, settings = api
+    worker_id, token = register(client, settings)
+    seed_job(factory, job_id="job-1")
+    seed_job(factory, job_id="job-2")
+    first = claim_job(client, worker_id, token)
+
+    blocked = client.post(
+        "/api/worker-jobs/claim",
+        headers=auth(token),
+        json={
+            "worker_id": worker_id,
+            "idempotency_key": str(uuid4()),
+            "lease_seconds": 60,
+        },
+    )
+    assert blocked.status_code == 204
+    with factory() as session:
+        pending = session.get(Job, "job-2")
+        worker = session.get(Worker, worker_id)
+        claim_events = session.scalars(
+            select(AuditEvent).where(AuditEvent.action == "job.claim")
+        ).all()
+        assert pending is not None and pending.status == JobStatus.PENDING
+        assert worker is not None and worker.status == WorkerStatus.BUSY
+        assert len(claim_events) == 1
+
+    failed = client.post(
+        "/api/worker-jobs/job-1/fail",
+        headers=auth(token),
+        json={
+            "worker_id": worker_id,
+            "lease_token": first["lease_token"],
+            "revision": 1,
+            "idempotency_key": str(uuid4()),
+            "error": "FIRST_JOB_FAILED",
+        },
+    )
+    assert failed.status_code == 200
+    second = claim_job(client, worker_id, token)
+    assert second["job_id"] == "job-2"
+
+
 def test_heartbeat_preserves_busy_state_until_job_finishes(
     api: tuple[TestClient, sessionmaker[Session], ServerSettings],
 ) -> None:
@@ -331,6 +377,53 @@ def test_stale_expired_and_invalid_transition_have_stable_conflict_codes(
     )
     assert expired.status_code == 409
     assert expired.json() == {"error": {"code": "expired_lease"}}
+
+
+def test_invalid_lease_identity_never_reveals_revision_or_expiry(
+    api: tuple[TestClient, sessionmaker[Session], ServerSettings],
+) -> None:
+    client, factory, settings = api
+    owner_id, owner_token = register(client, settings, name="owner")
+    other_id, other_token = register(client, settings, name="other")
+    seed_job(factory)
+    claimed = claim_job(client, owner_id, owner_token)
+
+    def progress(
+        worker_id: str, bearer_token: str, lease_token: str, revision: int
+    ) -> Response:
+        return cast(
+            Response,
+            client.post(
+                "/api/worker-jobs/job-1/progress",
+                headers=auth(bearer_token),
+                json={
+                    "worker_id": worker_id,
+                    "lease_token": lease_token,
+                    "revision": revision,
+                    "progress": 0.5,
+                    "idempotency_key": str(uuid4()),
+                },
+            ),
+        )
+
+    for response in (
+        progress(owner_id, owner_token, "wrong-lease-token", 0),
+        progress(other_id, other_token, str(claimed["lease_token"]), 0),
+    ):
+        assert response.status_code == 409
+        assert response.json() == {"error": {"code": "invalid_lease"}}
+
+    with factory.begin() as session:
+        job = session.get(Job, "job-1")
+        assert job is not None
+        job.lease_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+
+    for response in (
+        progress(owner_id, owner_token, "wrong-lease-token", 1),
+        progress(other_id, other_token, str(claimed["lease_token"]), 1),
+    ):
+        assert response.status_code == 409
+        assert response.json() == {"error": {"code": "invalid_lease"}}
 
 
 def test_audit_insert_failure_rolls_back_heartbeat(

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 from uuid import uuid4
 
 import pytest
@@ -13,6 +16,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.types import Message, Scope
 
 from drone_media_manager.api.app import create_app
 from drone_media_manager.config import ServerSettings
@@ -103,6 +107,60 @@ def test_body_larger_than_one_mebibyte_is_rejected_before_route_handling(
     )
     assert response.status_code == 413
     assert response.json() == {"error": {"code": "request_body_too_large"}}
+    with factory() as session:
+        assert session.scalars(select(Worker)).all() == []
+
+
+def test_fragmented_body_without_content_length_is_bounded_before_downstream(
+    secured_api: tuple[TestClient, sessionmaker[Session], ServerSettings],
+) -> None:
+    client, factory, settings = secured_api
+    scope: Scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "https",
+        "path": "/api/workers/register",
+        "raw_path": b"/api/workers/register",
+        "query_string": b"",
+        "root_path": "",
+        "headers": [
+            (b"content-type", b"application/json"),
+            (
+                b"authorization",
+                f"Bearer {settings.worker_bootstrap_token.get_secret_value()}".encode(),
+            ),
+        ],
+        "client": ("127.0.0.1", 12345),
+        "server": ("testserver", 443),
+    }
+    incoming = iter(
+        [
+            {"type": "http.request", "body": b"x" * 700_000, "more_body": True},
+            {"type": "http.request", "body": b"y" * 700_000, "more_body": False},
+        ]
+    )
+    outgoing: list[Message] = []
+
+    async def receive() -> Message:
+        return cast(Message, next(incoming))
+
+    async def send(message: Message) -> None:
+        outgoing.append(message)
+
+    async def invoke() -> None:
+        await client.app(scope, receive, send)
+
+    asyncio.run(invoke())
+    start = next(message for message in outgoing if message["type"] == "http.response.start")
+    body = b"".join(
+        message.get("body", b"")
+        for message in outgoing
+        if message["type"] == "http.response.body"
+    )
+    assert start["status"] == 413
+    assert json.loads(body) == {"error": {"code": "request_body_too_large"}}
     with factory() as session:
         assert session.scalars(select(Worker)).all() == []
 
