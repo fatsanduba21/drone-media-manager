@@ -14,6 +14,9 @@ from drone_media_manager.api.routes.health import health_router
 from drone_media_manager.api.routes.jobs import job_router
 from drone_media_manager.api.routes.workers import worker_router
 from drone_media_manager.config import ServerSettings
+from drone_media_manager.jobs.recovery import recover_on_startup
+from drone_media_manager.logging import configure_logging
+from drone_media_manager.time import utc_now
 
 MAX_REQUEST_BODY_BYTES = 1024 * 1024
 
@@ -77,14 +80,21 @@ async def _empty_receive() -> Message:
     return {"type": "http.request", "body": b"", "more_body": False}
 
 
-def create_app(
-    settings: ServerSettings, sessions: sessionmaker[Session]
-) -> FastAPI:
+def create_app(settings: ServerSettings, sessions: sessionmaker[Session]) -> FastAPI:
     app = FastAPI()
+    configure_logging()
+
+    @app.on_event("startup")
+    async def recover_expired_jobs() -> None:
+        recover_on_startup(sessions, utc_now())
 
     @app.exception_handler(HTTPException)
     async def stable_http_error(_: Request, error: HTTPException) -> JSONResponse:
-        detail = error.detail if isinstance(error.detail, dict) else {"code": "request_error"}
+        detail = (
+            error.detail
+            if isinstance(error.detail, dict)
+            else {"code": "request_error"}
+        )
         return JSONResponse(status_code=error.status_code, content={"error": detail})
 
     @app.exception_handler(RequestValidationError)
