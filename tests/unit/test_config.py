@@ -16,7 +16,7 @@ def test_server_rejects_unc_sqlite_path(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="SQLite database must be local"):
         ServerSettings(
             database_path=Path(r"\\omv\media\dmm.sqlite3"),
-            omv_root=tmp_path,
+            omv_root=tmp_path / "omv",
             worker_bootstrap_token=TOKEN,
         )
 
@@ -25,7 +25,7 @@ def test_server_rejects_cleartext_non_loopback_without_opt_in(tmp_path: Path) ->
     with pytest.raises(ValueError, match="DMM_ALLOW_INSECURE_LAN"):
         ServerSettings(
             database_path=tmp_path / "dmm.sqlite3",
-            omv_root=tmp_path,
+            omv_root=tmp_path / "omv",
             bind_host="0.0.0.0",
             worker_bootstrap_token=TOKEN,
         )
@@ -45,13 +45,24 @@ def test_server_rejects_database_under_configured_synced_root(
         )
 
 
+def test_server_rejects_database_under_omv_root(tmp_path: Path) -> None:
+    omv_root = tmp_path / "omv"
+
+    with pytest.raises(ValueError, match="OMV root"):
+        ServerSettings(
+            database_path=omv_root / "dmm.sqlite3",
+            omv_root=omv_root,
+            worker_bootstrap_token=TOKEN,
+        )
+
+
 def test_server_requires_bootstrap_token_with_at_least_32_characters(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(ValueError, match="at least 32 characters"):
         ServerSettings(
             database_path=tmp_path / "dmm.sqlite3",
-            omv_root=tmp_path,
+            omv_root=tmp_path / "omv",
             worker_bootstrap_token="0123456789abcdef0123456789abcde",
         )
 
@@ -66,7 +77,7 @@ def test_server_requires_tls_cert_and_key_together(
     with pytest.raises(ValueError, match="supplied together"):
         ServerSettings(
             database_path=tmp_path / "dmm.sqlite3",
-            omv_root=tmp_path,
+            omv_root=tmp_path / "omv",
             worker_bootstrap_token=TOKEN,
             tls_certfile=tls_certfile,
             tls_keyfile=tls_keyfile,
@@ -76,7 +87,7 @@ def test_server_requires_tls_cert_and_key_together(
 def test_server_allows_lan_bind_with_tls_pair(tmp_path: Path) -> None:
     settings = ServerSettings(
         database_path=tmp_path / "dmm.sqlite3",
-        omv_root=tmp_path,
+        omv_root=tmp_path / "omv",
         bind_host="192.168.1.10",
         worker_bootstrap_token=TOKEN,
         tls_certfile=Path("server.crt"),
@@ -90,7 +101,7 @@ def test_server_allows_lan_bind_with_tls_pair(tmp_path: Path) -> None:
 def test_server_allows_lan_bind_with_explicit_insecure_opt_in(tmp_path: Path) -> None:
     settings = ServerSettings(
         database_path=tmp_path / "dmm.sqlite3",
-        omv_root=tmp_path,
+        omv_root=tmp_path / "omv",
         bind_host="0.0.0.0",
         allow_insecure_lan=True,
         worker_bootstrap_token=TOKEN,
@@ -105,7 +116,7 @@ def test_server_defaults_to_loopback_and_keeps_bootstrap_token_secret(
 ) -> None:
     settings = ServerSettings(
         database_path=tmp_path / "dmm.sqlite3",
-        omv_root=tmp_path,
+        omv_root=tmp_path / "omv",
         worker_bootstrap_token=TOKEN,
     )
 

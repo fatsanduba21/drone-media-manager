@@ -51,6 +51,10 @@ class ServerSettings(_BaseSettings):
             raise ValueError("SQLite database must be local; UNC paths are not allowed")
 
         resolved_database_path = self.database_path.expanduser().resolve(strict=False)
+        resolved_omv_root = self.omv_root.expanduser().resolve(strict=False)
+        if resolved_database_path.is_relative_to(resolved_omv_root):
+            raise ValueError("SQLite database must not be under the OMV root")
+
         for synced_root in self.synced_roots:
             resolved_synced_root = synced_root.expanduser().resolve(strict=False)
             if resolved_database_path.is_relative_to(resolved_synced_root):
