@@ -28,3 +28,14 @@ class CredentialStore:
 
     def set_token(self, worker_name: str, token: str) -> None:
         self._backend.set_password(self.service_name, worker_name, token)
+
+    def get_worker_id(self, worker_name: str) -> str | None:
+        return self._backend.get_password(self.service_name, _worker_id_key(worker_name))
+
+    def set_credentials(self, worker_name: str, worker_id: str, token: str) -> None:
+        self.set_token(worker_name, token)
+        self._backend.set_password(self.service_name, _worker_id_key(worker_name), worker_id)
+
+
+def _worker_id_key(worker_name: str) -> str:
+    return f"{worker_name}.worker-id"

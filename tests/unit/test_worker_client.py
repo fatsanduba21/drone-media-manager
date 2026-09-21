@@ -10,6 +10,7 @@ from drone_media_manager.worker.client import (
     WorkerApiClient,
     WorkerApiError,
     WorkerProtocolError,
+    WorkerTransportError,
 )
 
 
@@ -124,3 +125,23 @@ def test_client_uses_required_timeout_limits() -> None:
 
     assert client.http_client.timeout.connect == 5.0
     assert client.http_client.timeout.read == 30.0
+
+
+def test_client_enforces_one_total_request_deadline() -> None:
+    deadlines: list[float] = []
+
+    def deadline_runner(operation, seconds: float) -> httpx.Response:
+        del operation
+        deadlines.append(seconds)
+        raise TimeoutError
+
+    client = WorkerApiClient(
+        "https://mac.example",
+        "permanent-secret",
+        request_runner=deadline_runner,
+    )
+
+    with pytest.raises(WorkerTransportError, match="deadline"):
+        client.heartbeat("worker-1")
+
+    assert deadlines == [30.0]

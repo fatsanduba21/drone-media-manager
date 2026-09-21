@@ -29,13 +29,19 @@ def main(argv: Sequence[str] | None = None, *, settings_loader: Callable[[], Wor
     if args.command == "pair":
         bootstrap = os.environ.get("DMM_WORKER_BOOTSTRAP_TOKEN") or prompt_secret("Worker bootstrap token: ")
         registered = client_factory(server_url, bootstrap).register(settings.worker_name, ["ingest"])
-        store.set_token(settings.worker_name, registered.worker_token)
+        store.set_credentials(
+            settings.worker_name, registered.worker_id, registered.worker_token
+        )
         return 0
     token = store.get_token(settings.worker_name)
     if not token:
         print("worker token is missing; run dmm-worker pair", file=sys.stderr)
         return 2
-    service = service_factory(client_factory(server_url, token), settings.worker_name)
+    worker_id = store.get_worker_id(settings.worker_name)
+    if not worker_id:
+        print("worker identity is missing; re-pair with dmm-worker pair", file=sys.stderr)
+        return 2
+    service = service_factory(client_factory(server_url, token), worker_id)
     if args.command == "once":
         service.run_once()
         return 0

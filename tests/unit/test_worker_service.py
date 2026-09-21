@@ -90,6 +90,43 @@ def test_run_forever_wait_is_interruptible_by_stop_event() -> None:
     assert waits == [2.0]
 
 
+def test_run_forever_recovers_after_transport_failure_and_resets_delay() -> None:
+    stop = Event()
+    sleeps: list[float] = []
+
+    class RecoveringApi:
+        def __init__(self) -> None:
+            self.heartbeat_calls = 0
+            self.claim_calls = 0
+
+        def heartbeat(self, worker_id: str) -> WorkerHeartbeatResponse:
+            self.heartbeat_calls += 1
+            if self.heartbeat_calls == 1:
+                raise WorkerTransportError("mac offline")
+            return WorkerHeartbeatResponse(
+                worker_id=worker_id,
+                status="ONLINE",
+                revision=1,
+                last_seen_at="2026-09-21T00:00:00Z",
+            )
+
+        def claim(self, _: str) -> ClaimResponse | None:
+            self.claim_calls += 1
+            return None
+
+    def wait(_: Event, seconds: float) -> bool:
+        sleeps.append(seconds)
+        if len(sleeps) == 2:
+            stop.set()
+        return stop.is_set()
+
+    api = RecoveringApi()
+    WorkerService(api, "returned-worker-id", wait=wait).run_forever(stop)
+
+    assert sleeps == [2.0, 2.0]
+    assert api.claim_calls == 1
+
+
 class FakeKeyring:
     def __init__(self) -> None:
         self.values: dict[tuple[str, str], str] = {}
@@ -111,6 +148,16 @@ def test_credential_store_uses_worker_name_and_fixed_service_name() -> None:
     assert store.get_token("windows-laptop") == "permanent-secret"
 
 
+def test_credential_store_keeps_returned_worker_id_alongside_token() -> None:
+    keyring = FakeKeyring()
+    store = CredentialStore(keyring)
+
+    store.set_credentials("windows-laptop", "returned-worker-id", "permanent-secret")
+
+    assert store.get_token("windows-laptop") == "permanent-secret"
+    assert store.get_worker_id("windows-laptop") == "returned-worker-id"
+
+
 def test_pair_reads_environment_bootstrap_token_before_hidden_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = WorkerSettings(
         server_url="https://mac.example",
@@ -124,7 +171,11 @@ def test_pair_reads_environment_bootstrap_token_before_hidden_prompt(monkeypatch
             received.append(token)
 
         def register(self, _: str, __: list[str]):
-            return type("Registration", (), {"worker_token": "stored-token"})()
+            return type(
+                "Registration",
+                (),
+                {"worker_id": "returned-worker-id", "worker_token": "stored-token"},
+            )()
 
     keyring = FakeKeyring()
     monkeypatch.setenv("DMM_WORKER_BOOTSTRAP_TOKEN", "environment-bootstrap")
@@ -138,6 +189,7 @@ def test_pair_reads_environment_bootstrap_token_before_hidden_prompt(monkeypatch
     ) == 0
     assert received == ["environment-bootstrap"]
     assert keyring.values[("DroneMediaManager", "windows-laptop")] == "stored-token"
+    assert CredentialStore(keyring).get_worker_id("windows-laptop") == "returned-worker-id"
 
 
 def test_once_requires_stored_token_without_leaking_it(capsys: pytest.CaptureFixture[str]) -> None:
@@ -155,7 +207,26 @@ def test_once_requires_stored_token_without_leaking_it(capsys: pytest.CaptureFix
     assert "token" in capsys.readouterr().err.lower()
 
 
-def test_run_parses_subcommand_and_uses_stored_permanent_token() -> None:
+def test_once_requires_repair_when_legacy_token_has_no_worker_identity(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    settings = WorkerSettings(
+        server_url="https://mac.example",
+        worker_name="windows-laptop",
+        omv_root="C:/media",
+    )
+    keyring = FakeKeyring()
+    keyring.set_password("DroneMediaManager", "windows-laptop", "permanent-secret")
+
+    assert main(
+        ["once"],
+        settings_loader=lambda: settings,
+        credential_store=CredentialStore(keyring),
+    ) == 2
+    assert "re-pair" in capsys.readouterr().err
+
+
+def test_run_uses_persisted_worker_id_not_worker_name() -> None:
     settings = WorkerSettings(
         server_url="https://mac.example",
         worker_name="windows-laptop",
@@ -163,6 +234,7 @@ def test_run_parses_subcommand_and_uses_stored_permanent_token() -> None:
     )
     keyring = FakeKeyring()
     keyring.set_password("DroneMediaManager", "windows-laptop", "stored-token")
+    keyring.set_password("DroneMediaManager", "windows-laptop.worker-id", "returned-worker-id")
     calls: list[str] = []
 
     class RunClient:
@@ -170,8 +242,8 @@ def test_run_parses_subcommand_and_uses_stored_permanent_token() -> None:
             calls.append(token)
 
     class RunService:
-        def __init__(self, _: RunClient, __: str) -> None:
-            pass
+        def __init__(self, _: RunClient, worker_id: str) -> None:
+            calls.append(worker_id)
 
         def run_forever(self, _: Event) -> None:
             calls.append("run")
@@ -183,4 +255,4 @@ def test_run_parses_subcommand_and_uses_stored_permanent_token() -> None:
         service_factory=RunService,
         credential_store=CredentialStore(keyring),
     ) == 0
-    assert calls == ["stored-token", "run"]
+    assert calls == ["stored-token", "returned-worker-id", "run"]

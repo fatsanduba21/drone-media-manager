@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from threading import Event, Thread
 from typing import Any, TypeVar
 from uuid import uuid4
 
@@ -24,6 +26,7 @@ from drone_media_manager.api.schemas.workers import (
 )
 
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
+RequestRunner = Callable[[Callable[[], httpx.Response], float], httpx.Response]
 
 
 class WorkerTransportError(RuntimeError):
@@ -46,10 +49,18 @@ class WorkerApiError(RuntimeError):
 class WorkerApiClient:
     """Makes authenticated worker API calls without exposing credentials in reprs."""
 
-    def __init__(self, server_url: str, token: str, *, http_client: httpx.Client | None = None) -> None:
+    def __init__(
+        self,
+        server_url: str,
+        token: str,
+        *,
+        http_client: httpx.Client | None = None,
+        request_runner: RequestRunner | None = None,
+    ) -> None:
         self._server_url = server_url.rstrip("/")
         self._token = token
         self.http_client = http_client or httpx.Client(timeout=httpx.Timeout(30.0, connect=5.0))
+        self._request_runner = request_runner or _run_with_deadline
 
     def __repr__(self) -> str:
         return f"WorkerApiClient(server_url={self._server_url!r}, token=[REDACTED])"
@@ -86,7 +97,17 @@ class WorkerApiClient:
 
     def _request(self, method: str, path: str, json: dict[str, Any]) -> httpx.Response:
         try:
-            response = self.http_client.request(method, f"{self._server_url}{path}", json=json, headers={"Authorization": f"Bearer {self._token}"})
+            response = self._request_runner(
+                lambda: self.http_client.request(
+                    method,
+                    f"{self._server_url}{path}",
+                    json=json,
+                    headers={"Authorization": f"Bearer {self._token}"},
+                ),
+                30.0,
+            )
+        except TimeoutError as error:
+            raise WorkerTransportError("control plane request deadline exceeded") from error
         except httpx.TransportError as error:
             raise WorkerTransportError("control plane unavailable") from error
         if response.is_error:
@@ -110,3 +131,27 @@ def _response_code(response: httpx.Response) -> str:
         return code if isinstance(code, str) else "request_failed"
     except (ValueError, AttributeError):
         return "request_failed"
+
+
+def _run_with_deadline(
+    operation: Callable[[], httpx.Response], total_seconds: float
+) -> httpx.Response:
+    """Return at a total wall-clock deadline even if HTTP phase timeouts add up."""
+    completed = Event()
+    outcome: list[httpx.Response | httpx.HTTPError] = []
+
+    def execute() -> None:
+        try:
+            outcome.append(operation())
+        except httpx.HTTPError as error:
+            outcome.append(error)
+        finally:
+            completed.set()
+
+    Thread(target=execute, daemon=True).start()
+    if not completed.wait(total_seconds):
+        raise TimeoutError
+    result = outcome[0]
+    if isinstance(result, httpx.HTTPError):
+        raise result
+    return result
