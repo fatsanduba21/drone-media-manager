@@ -18,6 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from drone_media_manager.db.base import Base
+from drone_media_manager.domain.enums import JobStatus, WorkerStatus
 from drone_media_manager.time import utc_now
 
 
@@ -26,6 +27,7 @@ class Worker(Base):
 
     __tablename__ = "workers"
     __table_args__ = (
+        CheckConstraint("status IN ('OFFLINE', 'ONLINE', 'BUSY')", name="ck_workers_status"),
         CheckConstraint("revision >= 0", name="ck_workers_revision_non_negative"),
         Index("ix_workers_status_last_seen_at", "status", "last_seen_at"),
     )
@@ -34,7 +36,7 @@ class Worker(Base):
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     token_digest: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     capabilities_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default=WorkerStatus.OFFLINE)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
@@ -48,6 +50,10 @@ class Job(Base):
 
     __tablename__ = "jobs"
     __table_args__ = (
+        CheckConstraint(
+            "status IN ('PENDING', 'LEASED', 'RUNNING', 'COMPLETE', 'INTERRUPTED', 'FAILED')",
+            name="ck_jobs_status",
+        ),
         CheckConstraint("revision >= 0", name="ck_jobs_revision_non_negative"),
         CheckConstraint("attempts >= 0", name="ck_jobs_attempts_non_negative"),
         CheckConstraint("progress >= 0 AND progress <= 1", name="ck_jobs_progress_range"),
@@ -58,7 +64,7 @@ class Job(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     kind: Mapped[str] = mapped_column(String(128), nullable=False)
     payload_json: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default=JobStatus.PENDING)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     progress: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)

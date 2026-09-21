@@ -103,6 +103,49 @@ def test_audit_events_reject_update_and_delete(tmp_path: Path) -> None:
     engine.dispose()
 
 
+@pytest.mark.parametrize("via_orm", [False, True])
+def test_new_entities_use_canonical_states(tmp_path: Path, via_orm: bool) -> None:
+    """New jobs must be claimable and workers must start offline on either write path."""
+    from sqlalchemy.orm import Session
+
+    from drone_media_manager.db.models.core import Job, Worker
+
+    database_path = tmp_path / "states.sqlite3"
+    command.upgrade(alembic_config(server_settings(database_path)), "head")
+    engine = create_engine(f"sqlite:///{database_path}")
+    if via_orm:
+        with Session(engine) as session, session.begin():
+            session.add(Worker(id="worker", name="worker", token_digest="digest"))
+            session.add(Job(id="job", kind="ingest", payload_json="{}"))
+    else:
+        with engine.begin() as connection:
+            connection.execute(text("INSERT INTO workers (id, name, token_digest) VALUES ('worker', 'worker', 'digest')"))
+            connection.execute(text("INSERT INTO jobs (id, kind, payload_json) VALUES ('job', 'ingest', '{}')"))
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT status FROM workers")) == "OFFLINE"
+        assert connection.scalar(text("SELECT status FROM jobs")) == "PENDING"
+    engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("table", "insert", "bad_status"),
+    [
+        ("jobs", "INSERT INTO jobs (id, kind, payload_json) VALUES ('job', 'ingest', '{}')", "queued"),
+        ("workers", "INSERT INTO workers (id, name, token_digest) VALUES ('worker', 'worker', 'digest')", "active"),
+    ],
+)
+def test_schema_rejects_noncanonical_states(tmp_path: Path, table: str, insert: str, bad_status: str) -> None:
+    """A direct SQL writer cannot create rows that the lifecycle cannot understand."""
+    database_path = tmp_path / "states.sqlite3"
+    command.upgrade(alembic_config(server_settings(database_path)), "head")
+    engine = create_engine(f"sqlite:///{database_path}")
+    with engine.begin() as connection:
+        connection.execute(text(insert))
+    with engine.connect() as connection, pytest.raises(IntegrityError, match="CHECK constraint failed"):
+        connection.execute(text(f"UPDATE {table} SET status = :status"), {"status": bad_status})
+    engine.dispose()
+
+
 def test_sqlite_engine_enforces_foreign_keys_and_busy_timeout(tmp_path: Path) -> None:
     """A missing worker lease is rejected and SQLite waits five seconds when busy."""
     from drone_media_manager.db.session import (
@@ -131,7 +174,7 @@ def test_sqlite_engine_enforces_foreign_keys_and_busy_timeout(tmp_path: Path) ->
                         id, kind, payload_json, status, revision, attempts, progress,
                         available_at, lease_worker_id, created_at, updated_at
                     ) VALUES (
-                        'job-1', 'ingest', '{}', 'queued', 0, 0, 0,
+                        'job-1', 'ingest', '{}', 'PENDING', 0, 0, 0,
                         '2026-01-01T00:00:00+00:00', 'missing-worker',
                         '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00'
                     )

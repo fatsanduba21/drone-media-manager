@@ -20,7 +20,7 @@ def upgrade() -> None:
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("token_digest", sa.String(length=255), nullable=False),
         sa.Column("capabilities_json", sa.Text(), nullable=False, server_default="[]"),
-        sa.Column("status", sa.String(length=32), nullable=False, server_default="active"),
+        sa.Column("status", sa.String(length=32), nullable=False, server_default="OFFLINE"),
         sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("revision", sa.Integer(), nullable=False, server_default="0"),
         sa.Column(
@@ -29,6 +29,7 @@ def upgrade() -> None:
         sa.Column(
             "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")
         ),
+        sa.CheckConstraint("status IN ('OFFLINE', 'ONLINE', 'BUSY')", name="ck_workers_status"),
         sa.CheckConstraint("revision >= 0", name="ck_workers_revision_non_negative"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("name"),
@@ -39,7 +40,7 @@ def upgrade() -> None:
         sa.Column("id", sa.String(length=36), nullable=False),
         sa.Column("kind", sa.String(length=128), nullable=False),
         sa.Column("payload_json", sa.Text(), nullable=False),
-        sa.Column("status", sa.String(length=32), nullable=False, server_default="queued"),
+        sa.Column("status", sa.String(length=32), nullable=False, server_default="PENDING"),
         sa.Column("revision", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("attempts", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("progress", sa.Float(), nullable=False, server_default="0"),
@@ -55,6 +56,10 @@ def upgrade() -> None:
         ),
         sa.Column(
             "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")
+        ),
+        sa.CheckConstraint(
+            "status IN ('PENDING', 'LEASED', 'RUNNING', 'COMPLETE', 'INTERRUPTED', 'FAILED')",
+            name="ck_jobs_status",
         ),
         sa.CheckConstraint("revision >= 0", name="ck_jobs_revision_non_negative"),
         sa.CheckConstraint("attempts >= 0", name="ck_jobs_attempts_non_negative"),
