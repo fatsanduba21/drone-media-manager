@@ -1,0 +1,1 @@
+"""Storage path safety helpers."""
