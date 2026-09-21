@@ -13,7 +13,8 @@ from drone_media_manager.config import ServerSettings
 
 def create_engine_from_settings(settings: ServerSettings) -> Engine:
     """Create a local SQLite engine after ``ServerSettings`` safety validation."""
-    database_path = settings.database_path.expanduser().resolve(strict=False)
+    validated_settings = ServerSettings.model_validate(settings.model_dump(mode="python"))
+    database_path = validated_settings.database_path.expanduser().resolve(strict=False)
     database_url = URL.create("sqlite", database=database_path.as_posix())
     engine = create_engine(database_url)
 

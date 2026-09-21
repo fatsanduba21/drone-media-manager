@@ -3,38 +3,51 @@
 from __future__ import annotations
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from alembic.util.exc import CommandError
 
 import drone_media_manager.db.models.core  # noqa: F401
+from drone_media_manager.config import ServerSettings
 from drone_media_manager.db.base import Base
+from drone_media_manager.db.session import create_engine_from_settings
 
 config = context.config
 target_metadata = Base.metadata
 
 
+def validated_server_settings() -> ServerSettings:
+    """Return the validated settings required for a migration connection."""
+    settings = config.attributes.get("server_settings")
+    if not isinstance(settings, ServerSettings):
+        raise CommandError("Migrations require validated ServerSettings")
+    return settings
+
+
 def run_migrations_offline() -> None:
     """Run migrations without a live database connection."""
+    engine = create_engine_from_settings(validated_server_settings())
     context.configure(
-        url=config.get_main_option("sqlalchemy.url"),
+        url=str(engine.url),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
-    with context.begin_transaction():
-        context.run_migrations()
+    try:
+        with context.begin_transaction():
+            context.run_migrations()
+    finally:
+        engine.dispose()
 
 
 def run_migrations_online() -> None:
     """Run migrations against a newly opened local database connection."""
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
-    with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
-        with context.begin_transaction():
-            context.run_migrations()
+    engine = create_engine_from_settings(validated_server_settings())
+    try:
+        with engine.connect() as connection:
+            context.configure(connection=connection, target_metadata=target_metadata)
+            with context.begin_transaction():
+                context.run_migrations()
+    finally:
+        engine.dispose()
 
 
 if context.is_offline_mode():

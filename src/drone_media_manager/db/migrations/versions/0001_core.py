@@ -77,10 +77,44 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
+    op.create_index("ix_workers_status_last_seen_at", "workers", ["status", "last_seen_at"])
+    op.create_index("ix_jobs_status_available_at", "jobs", ["status", "available_at"])
+    op.create_index("ix_jobs_lease_expires_at", "jobs", ["lease_expires_at"])
+    op.create_index(
+        "ix_audit_events_entity_type_entity_id_occurred_at",
+        "audit_events",
+        ["entity_type", "entity_id", "occurred_at"],
+    )
+    op.create_index("ix_audit_events_occurred_at", "audit_events", ["occurred_at"])
+    op.execute(
+        """
+        CREATE TRIGGER trg_audit_events_immutable_update
+        BEFORE UPDATE ON audit_events
+        BEGIN
+            SELECT RAISE(ABORT, 'audit_events are immutable');
+        END
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_audit_events_immutable_delete
+        BEFORE DELETE ON audit_events
+        BEGIN
+            SELECT RAISE(ABORT, 'audit_events are immutable');
+        END
+        """
+    )
 
 
 def downgrade() -> None:
     """Drop every application table created by this revision."""
+    op.execute("DROP TRIGGER IF EXISTS trg_audit_events_immutable_delete")
+    op.execute("DROP TRIGGER IF EXISTS trg_audit_events_immutable_update")
+    op.drop_index("ix_audit_events_occurred_at", table_name="audit_events")
+    op.drop_index("ix_audit_events_entity_type_entity_id_occurred_at", table_name="audit_events")
+    op.drop_index("ix_jobs_lease_expires_at", table_name="jobs")
+    op.drop_index("ix_jobs_status_available_at", table_name="jobs")
+    op.drop_index("ix_workers_status_last_seen_at", table_name="workers")
     op.drop_table("audit_events")
     op.drop_table("jobs")
     op.drop_table("workers")

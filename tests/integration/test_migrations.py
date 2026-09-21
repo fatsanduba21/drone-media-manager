@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.util.exc import CommandError
 from pydantic import SecretStr
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
@@ -14,27 +15,47 @@ from sqlalchemy.exc import IntegrityError
 from drone_media_manager.config import ServerSettings
 
 APPLICATION_TABLES = {"workers", "jobs", "audit_events"}
+CORE_INDEXES = {
+    "ix_workers_status_last_seen_at",
+    "ix_jobs_status_available_at",
+    "ix_jobs_lease_expires_at",
+    "ix_audit_events_entity_type_entity_id_occurred_at",
+    "ix_audit_events_occurred_at",
+}
 
 
-def alembic_config(database_url: str) -> Config:
-    """Return Alembic configuration pointed at an isolated SQLite database."""
+def server_settings(database_path: Path) -> ServerSettings:
+    """Build validated, local settings for a temporary migration database."""
+    return ServerSettings(
+        database_path=database_path,
+        omv_root=database_path.parent / "omv",
+        worker_bootstrap_token=SecretStr("x" * 32),
+    )
+
+
+def alembic_config(settings: ServerSettings | None = None) -> Config:
+    """Return Alembic configuration carrying explicitly validated settings."""
     project_root = Path(__file__).resolve().parents[2]
     config = Config(str(project_root / "alembic.ini"))
-    config.set_main_option("sqlalchemy.url", database_url)
+    if settings is not None:
+        config.attributes["server_settings"] = settings
     return config
 
 
 def test_core_migration_round_trip(tmp_path: Path) -> None:
     """Removing core tables on downgrade prevents stale schema from being reused."""
-    database_url = f"sqlite:///{tmp_path / 'core.sqlite3'}"
-    command.upgrade(alembic_config(database_url), "head")
+    database_path = tmp_path / "core.sqlite3"
+    database_url = f"sqlite:///{database_path}"
+    settings = server_settings(database_path)
+    command.upgrade(alembic_config(settings), "head")
 
     upgrade_engine = create_engine(database_url)
     assert APPLICATION_TABLES <= set(inspect(upgrade_engine).get_table_names())
     assert "alembic_version" in inspect(upgrade_engine).get_table_names()
+    assert CORE_INDEXES <= {index["name"] for table in APPLICATION_TABLES for index in inspect(upgrade_engine).get_indexes(table)}
     upgrade_engine.dispose()
 
-    command.downgrade(alembic_config(database_url), "base")
+    command.downgrade(alembic_config(settings), "base")
 
     downgrade_engine = create_engine(database_url)
     remaining_tables = set(inspect(downgrade_engine).get_table_names())
@@ -45,6 +66,43 @@ def test_core_migration_round_trip(tmp_path: Path) -> None:
     downgrade_engine.dispose()
 
 
+def test_migrations_require_validated_server_settings() -> None:
+    """A migration command cannot bypass the local SQLite path policy."""
+    with pytest.raises(CommandError, match="validated ServerSettings"):
+        command.upgrade(alembic_config(), "head")
+
+
+def test_audit_events_reject_update_and_delete(tmp_path: Path) -> None:
+    """Audit records remain append-only even when SQL is issued directly."""
+    database_path = tmp_path / "core.sqlite3"
+    database_url = f"sqlite:///{database_path}"
+    settings = server_settings(database_path)
+    command.upgrade(alembic_config(settings), "head")
+
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO audit_events (
+                    id, actor, action, entity_type, entity_id, result,
+                    details_json, correlation_id, occurred_at
+                ) VALUES (
+                    'audit-1', 'operator', 'create', 'job', 'job-1', 'success',
+                    '{}', 'correlation-1', '2026-01-01T00:00:00+00:00'
+                )
+                """
+            )
+        )
+    with engine.connect() as connection:
+        with pytest.raises(IntegrityError, match="audit_events are immutable"):
+            connection.execute(text("UPDATE audit_events SET result = 'failure'"))
+        connection.rollback()
+        with pytest.raises(IntegrityError, match="audit_events are immutable"):
+            connection.execute(text("DELETE FROM audit_events"))
+    engine.dispose()
+
+
 def test_sqlite_engine_enforces_foreign_keys_and_busy_timeout(tmp_path: Path) -> None:
     """A missing worker lease is rejected and SQLite waits five seconds when busy."""
     from drone_media_manager.db.session import (
@@ -53,13 +111,8 @@ def test_sqlite_engine_enforces_foreign_keys_and_busy_timeout(tmp_path: Path) ->
     )
 
     database_path = tmp_path / "core.sqlite3"
-    settings = ServerSettings(
-        database_path=database_path,
-        omv_root=tmp_path / "omv",
-        worker_bootstrap_token=SecretStr("x" * 32),
-    )
-    database_url = f"sqlite:///{database_path}"
-    command.upgrade(alembic_config(database_url), "head")
+    settings = server_settings(database_path)
+    command.upgrade(alembic_config(settings), "head")
 
     engine = create_engine_from_settings(settings)
     factory = session_factory(engine)

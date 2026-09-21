@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -24,7 +25,10 @@ class Worker(Base):
     """A registered worker that can lease and process jobs."""
 
     __tablename__ = "workers"
-    __table_args__ = (CheckConstraint("revision >= 0", name="ck_workers_revision_non_negative"),)
+    __table_args__ = (
+        CheckConstraint("revision >= 0", name="ck_workers_revision_non_negative"),
+        Index("ix_workers_status_last_seen_at", "status", "last_seen_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
@@ -47,6 +51,8 @@ class Job(Base):
         CheckConstraint("revision >= 0", name="ck_jobs_revision_non_negative"),
         CheckConstraint("attempts >= 0", name="ck_jobs_attempts_non_negative"),
         CheckConstraint("progress >= 0 AND progress <= 1", name="ck_jobs_progress_range"),
+        Index("ix_jobs_status_available_at", "status", "available_at"),
+        Index("ix_jobs_lease_expires_at", "lease_expires_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
@@ -73,6 +79,15 @@ class AuditEvent(Base):
     """Append-only record of an actor's result-bearing operation."""
 
     __tablename__ = "audit_events"
+    __table_args__ = (
+        Index(
+            "ix_audit_events_entity_type_entity_id_occurred_at",
+            "entity_type",
+            "entity_id",
+            "occurred_at",
+        ),
+        Index("ix_audit_events_occurred_at", "occurred_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     actor: Mapped[str] = mapped_column(String(255), nullable=False)
