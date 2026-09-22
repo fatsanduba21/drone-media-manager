@@ -11,7 +11,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from drone_media_manager.api.routes.health import health_router
+from drone_media_manager.api.routes.ingests import ingest_router
 from drone_media_manager.api.routes.jobs import job_router
+from drone_media_manager.api.routes.sources import source_router
 from drone_media_manager.api.routes.workers import worker_router
 from drone_media_manager.config import ServerSettings
 from drone_media_manager.jobs.recovery import recover_on_startup
@@ -117,6 +119,8 @@ def create_app(settings: ServerSettings, sessions: sessionmaker[Session]) -> Fas
 
     app.include_router(worker_router(settings, sessions))
     app.include_router(job_router(sessions))
+    app.include_router(source_router(sessions))
+    app.include_router(ingest_router(settings, sessions))
     app.include_router(health_router(settings, sessions))
     app.add_middleware(BoundedBodyMiddleware)
     return app
