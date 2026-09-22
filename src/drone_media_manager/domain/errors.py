@@ -3,6 +3,10 @@
 from enum import StrEnum
 
 
+class StaleRevision(ValueError):
+    """The supplied optimistic revision no longer owns the requested write."""
+
+
 class InvalidTransition(ValueError):
     """The requested lifecycle edge is not legal."""
 
