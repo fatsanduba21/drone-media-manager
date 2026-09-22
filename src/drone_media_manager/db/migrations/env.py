@@ -5,6 +5,7 @@ from __future__ import annotations
 from alembic import context
 from alembic.util.exc import CommandError
 
+import drone_media_manager.db.models.catalog
 import drone_media_manager.db.models.core  # noqa: F401
 from drone_media_manager.config import ServerSettings
 from drone_media_manager.db.base import Base
