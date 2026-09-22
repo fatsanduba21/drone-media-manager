@@ -11,6 +11,16 @@ destination files are independently hashed, divergent files are never
 overwritten, and removable-card release remains policy-controlled. See the
 [safe-ingest runbook](Docs/operations/safe-ingest.md).
 
+## Safe ingest (Phase 1)
+
+```powershell
+uv run dmm-worker scan C:\DMM-TestSource
+uv run dmm-worker ingest --dry-run C:\DMM-TestSource
+uv run dmm-worker submit C:\DMM-TestSource
+```
+
+Confirm and monitor on the Mac with `uv run dmm-server ingest confirm SNAPSHOT_ID --trip TRIP_ID` and `uv run dmm-server ingest status INGEST_ID`. Exit codes are 0 (success), 2 (configuration), 3 (retryable interruption), and 4 (integrity/conflict). The source is never modified; see [the complete runbook](Docs/operations/safe-ingest.md).
+
 ## Operating the foundation
 
 - Mac server: [the server runbook](Docs/operations/mac-server.md)

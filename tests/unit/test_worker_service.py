@@ -144,7 +144,9 @@ def test_credential_store_uses_worker_name_and_fixed_service_name() -> None:
 
     store.set_token("windows-laptop", "permanent-secret")
 
-    assert keyring.values == {("DroneMediaManager", "windows-laptop"): "permanent-secret"}
+    assert keyring.values == {
+        ("DroneMediaManager", "windows-laptop"): "permanent-secret"
+    }
     assert store.get_token("windows-laptop") == "permanent-secret"
 
 
@@ -158,7 +160,9 @@ def test_credential_store_keeps_returned_worker_id_alongside_token() -> None:
     assert store.get_worker_id("windows-laptop") == "returned-worker-id"
 
 
-def test_pair_reads_environment_bootstrap_token_before_hidden_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pair_reads_environment_bootstrap_token_before_hidden_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     settings = WorkerSettings(
         server_url="https://mac.example",
         worker_name="windows-laptop",
@@ -180,30 +184,40 @@ def test_pair_reads_environment_bootstrap_token_before_hidden_prompt(monkeypatch
     keyring = FakeKeyring()
     monkeypatch.setenv("DMM_WORKER_BOOTSTRAP_TOKEN", "environment-bootstrap")
 
-    assert main(
-        ["pair"],
-        settings_loader=lambda: settings,
-        client_factory=PairClient,
-        credential_store=CredentialStore(keyring),
-        prompt_secret=lambda _: (_ for _ in ()).throw(AssertionError("prompted")),
-    ) == 0
+    assert (
+        main(
+            ["pair"],
+            settings_loader=lambda: settings,
+            client_factory=PairClient,
+            credential_store=CredentialStore(keyring),
+            prompt_secret=lambda _: (_ for _ in ()).throw(AssertionError("prompted")),
+        )
+        == 0
+    )
     assert received == ["environment-bootstrap"]
     assert keyring.values[("DroneMediaManager", "windows-laptop")] == "stored-token"
-    assert CredentialStore(keyring).get_worker_id("windows-laptop") == "returned-worker-id"
+    assert (
+        CredentialStore(keyring).get_worker_id("windows-laptop") == "returned-worker-id"
+    )
 
 
-def test_once_requires_stored_token_without_leaking_it(capsys: pytest.CaptureFixture[str]) -> None:
+def test_once_requires_stored_token_without_leaking_it(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     settings = WorkerSettings(
         server_url="https://mac.example",
         worker_name="windows-laptop",
         omv_root="C:/media",
     )
 
-    assert main(
-        ["once"],
-        settings_loader=lambda: settings,
-        credential_store=CredentialStore(FakeKeyring()),
-    ) == 2
+    assert (
+        main(
+            ["once"],
+            settings_loader=lambda: settings,
+            credential_store=CredentialStore(FakeKeyring()),
+        )
+        == 2
+    )
     assert "token" in capsys.readouterr().err.lower()
 
 
@@ -218,11 +232,14 @@ def test_once_requires_repair_when_legacy_token_has_no_worker_identity(
     keyring = FakeKeyring()
     keyring.set_password("DroneMediaManager", "windows-laptop", "permanent-secret")
 
-    assert main(
-        ["once"],
-        settings_loader=lambda: settings,
-        credential_store=CredentialStore(keyring),
-    ) == 2
+    assert (
+        main(
+            ["once"],
+            settings_loader=lambda: settings,
+            credential_store=CredentialStore(keyring),
+        )
+        == 2
+    )
     assert "re-pair" in capsys.readouterr().err
 
 
@@ -234,7 +251,9 @@ def test_run_uses_persisted_worker_id_not_worker_name() -> None:
     )
     keyring = FakeKeyring()
     keyring.set_password("DroneMediaManager", "windows-laptop", "stored-token")
-    keyring.set_password("DroneMediaManager", "windows-laptop.worker-id", "returned-worker-id")
+    keyring.set_password(
+        "DroneMediaManager", "windows-laptop.worker-id", "returned-worker-id"
+    )
     calls: list[str] = []
 
     class RunClient:
@@ -248,11 +267,52 @@ def test_run_uses_persisted_worker_id_not_worker_name() -> None:
         def run_forever(self, _: Event) -> None:
             calls.append("run")
 
-    assert main(
-        ["run"],
-        settings_loader=lambda: settings,
-        client_factory=RunClient,
-        service_factory=RunService,
-        credential_store=CredentialStore(keyring),
-    ) == 0
+    assert (
+        main(
+            ["run"],
+            settings_loader=lambda: settings,
+            client_factory=RunClient,
+            service_factory=RunService,
+            credential_store=CredentialStore(keyring),
+        )
+        == 0
+    )
     assert calls == ["stored-token", "returned-worker-id", "run"]
+
+
+def test_claimed_ingest_is_finalized_through_the_api() -> None:
+    from datetime import UTC, datetime
+
+    from drone_media_manager.worker.handlers.ingest import JobExecutionResult
+
+    class CompletingApi(FakeApi):
+        def __init__(self) -> None:
+            super().__init__()
+            self.completed = []
+
+        def claim(self, worker_id: str):
+            return ClaimResponse(
+                job_id="job-1",
+                kind="ingest",
+                payload={"items": []},
+                status="LEASED",
+                revision=1,
+                attempts=1,
+                progress=0.0,
+                lease_expires_at=datetime.now(UTC),
+                lease_token="lease-token",
+            )
+
+        def complete(self, job_id, worker_id, lease_token, revision):
+            self.completed.append((job_id, worker_id, lease_token, revision))
+
+    class Handler:
+        def execute(self, job):
+            return JobExecutionResult("VERIFIED", 0)
+
+    api = CompletingApi()
+    assert (
+        WorkerService(api, "worker-1", handler=Handler()).run_once()
+        is PollResult.CLAIMED
+    )
+    assert api.completed == [("job-1", "worker-1", "lease-token", 1)]

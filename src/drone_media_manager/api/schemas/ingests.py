@@ -19,3 +19,6 @@ class IngestResponse(StrictSchema):
     revision: int
     trip_id: str
     snapshot_id: str | None
+    bytes_total: int = 0
+    bytes_verified: int = 0
+    manifest_status: str = "PENDING"

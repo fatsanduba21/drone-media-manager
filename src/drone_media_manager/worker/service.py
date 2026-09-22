@@ -16,6 +16,12 @@ from drone_media_manager.worker.handlers.ingest import IngestJobHandler
 class WorkerApi(Protocol):
     def heartbeat(self, worker_id: str) -> WorkerHeartbeatResponse: ...
     def claim(self, worker_id: str) -> ClaimResponse | None: ...
+    def complete(
+        self, job_id: str, worker_id: str, lease_token: str, revision: int
+    ) -> object: ...
+    def fail(
+        self, job_id: str, worker_id: str, lease_token: str, revision: int, error: str
+    ) -> object: ...
 
 
 class PollResult(StrEnum):
@@ -49,7 +55,20 @@ class WorkerService:
         if job is None:
             return PollResult.IDLE
         if job.kind == "ingest":
-            self._handler.execute(job)
+            result = self._handler.execute(job)
+            if job.lease_token is not None:
+                if result.status == "VERIFIED":
+                    self._api.complete(
+                        job.job_id, self._worker_id, job.lease_token, job.revision
+                    )
+                else:
+                    self._api.fail(
+                        job.job_id,
+                        self._worker_id,
+                        job.lease_token,
+                        job.revision,
+                        result.error_code or result.status,
+                    )
         return PollResult.CLAIMED
 
     def run_forever(self, stop_event: Event) -> None:

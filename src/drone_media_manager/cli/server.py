@@ -1,11 +1,13 @@
-"""Server lifecycle entry point."""
+"""Server lifecycle and local-admin ingest entry point."""
 
 from __future__ import annotations
 
 import argparse
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from types import SimpleNamespace
 
+import httpx
 import uvicorn
 from alembic import command
 from alembic.config import Config
@@ -25,6 +27,28 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("ingest_id", nargs="?")
     parser.add_argument("--trip")
     return parser
+
+
+class AdminIngestClient:
+    """Localhost-only HTTP client for confirmation and status lookup."""
+
+    def __init__(self, settings: ServerSettings) -> None:
+        scheme = "https" if settings.tls_certfile else "http"
+        self._base = f"{scheme}://{settings.bind_host}:{settings.port}"
+        self._client = httpx.Client(timeout=30.0)
+
+    def confirm_ingest(self, snapshot_id: str, trip_id: str) -> SimpleNamespace:
+        response = self._client.post(
+            f"{self._base}/api/ingests",
+            json={"snapshot_id": snapshot_id, "trip_id": trip_id},
+        )
+        response.raise_for_status()
+        return SimpleNamespace(**response.json())
+
+    def get_ingest(self, ingest_id: str) -> SimpleNamespace:
+        response = self._client.get(f"{self._base}/api/ingests/{ingest_id}")
+        response.raise_for_status()
+        return SimpleNamespace(**response.json())
 
 
 def alembic_config(settings: ServerSettings) -> Config:
@@ -68,14 +92,22 @@ def main(
     argv: Sequence[str] | None = None,
     *,
     settings_loader: Callable[[], ServerSettings] = get_server_settings,
+    admin_client_factory: Callable[
+        [ServerSettings], AdminIngestClient
+    ] = AdminIngestClient,
 ) -> int:
     args = _parser().parse_args(argv)
     settings = settings_loader()
     if args.command == "ingest":
+        client = admin_client_factory(settings)
         if args.ingest_command == "confirm" and args.ingest_id and args.trip:
+            result = client.confirm_ingest(args.ingest_id, args.trip)
+            print(f"ingest={result.ingest_id} status={result.status}")
             return 0
         if args.ingest_command == "status" and args.ingest_id:
-            return 0
+            result = client.get_ingest(args.ingest_id)
+            print(f"ingest={result.ingest_id} status={result.status}")
+            return {"VERIFIED": 0, "INTERRUPTED": 3, "FAILED": 4}.get(result.status, 3)
         return 2
     if args.command == "migrate":
         migrate(settings)

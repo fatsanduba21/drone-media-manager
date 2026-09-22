@@ -11,7 +11,7 @@ from drone_media_manager.worker.handlers.ingest import IngestJobHandler
 
 @pytest.mark.parametrize(
     ("failure", "expected_status"),
-    [("destination_hash_mismatch", "FAILED"), ("source_disconnected", "FAILED")],
+    [("destination_hash_mismatch", "FAILED"), ("source_disconnected", "INTERRUPTED")],
 )
 def test_failure_never_marks_ingest_verified(
     tmp_path: Path, failure: str, expected_status: str

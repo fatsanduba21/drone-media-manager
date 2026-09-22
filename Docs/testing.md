@@ -65,3 +65,5 @@ Before accepting the Phase 0 checkpoint, inspect the diff for:
 See [the safe-ingest runbook](operations/safe-ingest.md). The automated gate
 covers independent hashing, no-replace promotion, resumable partials,
 idempotent repeat import, and source non-mutation.
+
+The Phase 1 manual checkpoint uses one MP4/SRT pair, one MP4 without SRT, and one orphan SRT. Capture `scan`, `ingest --dry-run`, `submit`, Mac confirmation/status, reconnect retry, and a second import. Evidence must show equal verified/total bytes, a verified manifest, unchanged source digest, and no duplicate destination files.

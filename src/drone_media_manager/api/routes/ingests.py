@@ -46,6 +46,11 @@ def _response(ingest: IngestJob) -> IngestResponse:
         revision=ingest.revision,
         trip_id=ingest.trip_id,
         snapshot_id=ingest.source_snapshot_id,
+        bytes_total=ingest.bytes_total,
+        bytes_verified=ingest.bytes_verified,
+        manifest_status="VERIFIED"
+        if ingest.status == IngestStatus.VERIFIED
+        else "PENDING",
     )
 
 
