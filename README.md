@@ -6,15 +6,17 @@ provides local SQLite migrations, authenticated worker pairing, heartbeats,
 durable job leases, health reporting, structured audit logs, and recovery of
 expired work.
 
-Phase 0 does **not** ingest, copy, process, delete, retain, or format media.
-The SD card remains outside the application boundary. OMV/NAS paths are
-configured as logical roots and are not touched by the worker contract tests.
+The distributed server and worker remain a foundation. The standalone
+`dmm-organize` command implements Windows to OMV PLAN/APPLY for MP4, SRT, and
+JPG/JPEG. It does not require the Mac server or SQLite. The SD card remains
+outside the application boundary.
 
 ## Operating the foundation
 
 - Mac server: [the server runbook](Docs/operations/mac-server.md)
 - Windows worker: [the worker runbook](Docs/operations/windows-worker.md)
 - Verification and safe fixtures: [testing](Docs/testing.md)
+- Windows to OMV editorial organizer: [operating guide](Docs/operations/windows-organize.md)
 
 The service is LAN-oriented. Keep the server bound to loopback until TLS,
 authentication, and a restricted LAN firewall rule are configured for a real

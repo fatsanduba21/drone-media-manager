@@ -20,6 +20,7 @@ dependencies = [
 [project.scripts]
 dmm-worker = "drone_media_manager.cli.worker:main"
 dmm-server = "drone_media_manager.cli.server:main"
+dmm-organize = "drone_media_manager.cli.organize:main"
 
 [dependency-groups]
 dev = [
