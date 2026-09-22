@@ -155,3 +155,28 @@ ingest behavior; editorial files are resolved from manifest output paths.
 Files from a `PLANNED` asset are `UNVERIFIED`; missing files
 are `MISSING`; hash mismatches under `--verify-hash` are `HASH_MISMATCH`. A known mismatch stays unavailable until a successful
 new `--verify-hash` run. None are counted as `AVAILABLE`.
+
+## Recovery after a power outage
+
+Use the existing installation and mounts. A reboot alone does not require another catalog import.
+
+1. Confirm `/Volumes/SSDMacbook` is mounted. If absent, inspect `diskutil list external physical` and restore the SSD mount before starting the service. The checkout and SQLite database live there.
+2. If `/Volumes/VOL1_POOL_SSDs` is absent, reconnect the configured OMV share in Finder using its saved SMB address. Enter SMB credentials in the Mac UI. Confirm `/Volumes/VOL1_POOL_SSDs/drone-organizado/teste-fase-1/MANIFESTO.json` exists; do not create an empty substitute directory under `/Volumes`.
+3. From the checkout, verify SQLite integrity:
+
+   ```bash
+   db=$(uv run python -c 'from drone_media_manager.config import get_server_settings; print(get_server_settings().database_path)')
+   sqlite3 "$db" 'PRAGMA integrity_check;'
+   ```
+
+   The expected result is `ok`.
+
+4. Check the existing job with `launchctl print "gui/$(id -u)/com.drone-media-manager.server"` and `curl -fsS http://127.0.0.1:8000/health`. If it has not recovered after both volumes are ready, restart it with `launchctl kickstart -k "gui/$(id -u)/com.drone-media-manager.server"`.
+5. Recheck all 18 media files from the Mac's OMV mount:
+
+   ```bash
+   root=$(uv run python -c 'from drone_media_manager.config import get_server_settings; print(get_server_settings().omv_root)')
+   uv run dmm-catalog preview "$root/teste-fase-1/MANIFESTO.json" --verify-hash
+   ```
+
+   This preview is read-only.
