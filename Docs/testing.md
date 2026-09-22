@@ -59,3 +59,9 @@ Before accepting the Phase 0 checkpoint, inspect the diff for:
   formatting code;
 - no documentation claim that local files are synchronized to iCloud or that
   a local copy is a backup without a verified restore.
+
+## Phase 1 safe-ingest checkpoint
+
+See [the safe-ingest runbook](operations/safe-ingest.md). The automated gate
+covers independent hashing, no-replace promotion, resumable partials,
+idempotent repeat import, and source non-mutation.

@@ -6,9 +6,10 @@ provides local SQLite migrations, authenticated worker pairing, heartbeats,
 durable job leases, health reporting, structured audit logs, and recovery of
 expired work.
 
-Phase 0 does **not** ingest, copy, process, delete, retain, or format media.
-The SD card remains outside the application boundary. OMV/NAS paths are
-configured as logical roots and are not touched by the worker contract tests.
+Phase 1 adds a guarded safe-ingest checkpoint: sources are read-only,
+destination files are independently hashed, divergent files are never
+overwritten, and removable-card release remains policy-controlled. See the
+[safe-ingest runbook](Docs/operations/safe-ingest.md).
 
 ## Operating the foundation
 
