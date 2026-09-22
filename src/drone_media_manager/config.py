@@ -58,7 +58,9 @@ class ServerSettings(_BaseSettings):
         for synced_root in self.synced_roots:
             resolved_synced_root = synced_root.expanduser().resolve(strict=False)
             if resolved_database_path.is_relative_to(resolved_synced_root):
-                raise ValueError("SQLite database must not be under a synchronized root")
+                raise ValueError(
+                    "SQLite database must not be under a synchronized root"
+                )
 
         if (self.tls_certfile is None) != (self.tls_keyfile is None):
             raise ValueError(
@@ -81,6 +83,7 @@ class WorkerSettings(_BaseSettings):
     server_url: AnyHttpUrl
     worker_name: str = Field(min_length=1)
     omv_root: Path
+    snapshot_registry_path: Path = Path(".dmm-worker-snapshots.json")
     poll_seconds: float = Field(default=10.0, gt=0)
     heartbeat_seconds: float = Field(default=30.0, gt=0)
 

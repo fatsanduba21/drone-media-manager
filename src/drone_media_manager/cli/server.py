@@ -26,6 +26,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("ingest_command", nargs="?", choices=("confirm", "status"))
     parser.add_argument("ingest_id", nargs="?")
     parser.add_argument("--trip")
+    parser.add_argument("--revision", type=int, default=2)
     return parser
 
 
@@ -37,10 +38,16 @@ class AdminIngestClient:
         self._base = f"{scheme}://{settings.bind_host}:{settings.port}"
         self._client = httpx.Client(timeout=30.0)
 
-    def confirm_ingest(self, snapshot_id: str, trip_id: str) -> SimpleNamespace:
+    def confirm_ingest(
+        self, snapshot_id: str, trip_id: str, revision: int
+    ) -> SimpleNamespace:
         response = self._client.post(
             f"{self._base}/api/ingests",
-            json={"snapshot_id": snapshot_id, "trip_id": trip_id},
+            json={
+                "snapshot_id": snapshot_id,
+                "trip_id": trip_id,
+                "revision": revision,
+            },
         )
         response.raise_for_status()
         return SimpleNamespace(**response.json())
@@ -101,7 +108,7 @@ def main(
     if args.command == "ingest":
         client = admin_client_factory(settings)
         if args.ingest_command == "confirm" and args.ingest_id and args.trip:
-            result = client.confirm_ingest(args.ingest_id, args.trip)
+            result = client.confirm_ingest(args.ingest_id, args.trip, args.revision)
             print(f"ingest={result.ingest_id} status={result.status}")
             return 0
         if args.ingest_command == "status" and args.ingest_id:

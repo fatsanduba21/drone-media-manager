@@ -21,6 +21,7 @@ from drone_media_manager.sources.discovery import (
 from drone_media_manager.worker.client import WorkerApiClient
 from drone_media_manager.worker.credentials import CredentialStore
 from drone_media_manager.worker.service import WorkerService
+from drone_media_manager.worker.snapshots import default_snapshot_registry
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -89,7 +90,7 @@ def _submit(
     credential_store: CredentialStore,
 ) -> int:
     inventory = _inventory(path)
-    _, client, worker_id = _authenticated_client(
+    settings, client, worker_id = _authenticated_client(
         settings_loader, client_factory, credential_store
     )
     snapshot = client.create_snapshot(
@@ -97,6 +98,9 @@ def _submit(
         inventory.source.kind.value,
         inventory.source.volume_identity,
         datetime.now(UTC) + timedelta(hours=24),
+    )
+    default_snapshot_registry(settings.snapshot_registry_path).register(
+        snapshot.snapshot_id, inventory.source, inventory
     )
     revision = snapshot.revision
     entries = _snapshot_entries(inventory)
@@ -166,6 +170,7 @@ def main(
             print(str(error), file=sys.stderr)
             return 2
     settings = settings_loader()
+    default_snapshot_registry(settings.snapshot_registry_path)
     server_url = str(settings.server_url).rstrip("/")
     if args.command == "pair":
         bootstrap = os.environ.get("DMM_WORKER_BOOTSTRAP_TOKEN") or prompt_secret(
@@ -188,7 +193,15 @@ def main(
             "worker identity is missing; re-pair with dmm-worker pair", file=sys.stderr
         )
         return 2
-    service = service_factory(client_factory(server_url, token), worker_id)
+    if service_factory is WorkerService:
+        service = WorkerService(
+            client_factory(server_url, token),
+            worker_id,
+            snapshot_registry=default_snapshot_registry(),
+            omv_root=settings.omv_root,
+        )
+    else:
+        service = service_factory(client_factory(server_url, token), worker_id)
     if args.command == "once":
         service.run_once()
         return 0

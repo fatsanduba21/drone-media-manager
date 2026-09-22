@@ -111,23 +111,40 @@ def ingest_router(
                     .where(SourceSnapshotEntry.snapshot_id == snapshot.id)
                     .order_by(SourceSnapshotEntry.source_rel_path)
                 ).all()
+                payload_items: list[dict[str, object]] = []
+                item_records: list[IngestItem] = []
                 for entry in entries:
                     destination = _destination_path(trip, entry)
                     partial = _partial_path(destination, ingest.id)
-                    session.add(
-                        IngestItem(
-                            ingest_job_id=ingest.id,
-                            source_rel_path=entry.source_rel_path,
-                            source_size_bytes=entry.size_bytes,
-                            source_mtime_ns=entry.mtime_ns,
-                            source_file_identity=entry.file_identity,
-                            pair_status=entry.pair_status or "VIDEO_WITHOUT_SRT",
-                            destination_rel_path=destination,
-                            partial_rel_path=partial,
-                            status=IngestItemStatus.PENDING,
-                        )
+                    item = IngestItem(
+                        ingest_job_id=ingest.id,
+                        source_rel_path=entry.source_rel_path,
+                        source_size_bytes=entry.size_bytes,
+                        source_mtime_ns=entry.mtime_ns,
+                        source_file_identity=entry.file_identity,
+                        pair_status=entry.pair_status or "VIDEO_WITHOUT_SRT",
+                        destination_rel_path=destination,
+                        partial_rel_path=partial,
+                        status=IngestItemStatus.PENDING,
+                    )
+                    session.add(item)
+                    item_records.append(item)
+                    payload_items.append(
+                        {
+                            "id": item.id,
+                            "source_rel_path": entry.source_rel_path,
+                            "source_size_bytes": entry.size_bytes,
+                            "source_mtime_ns": entry.mtime_ns,
+                            "source_file_identity": entry.file_identity,
+                            "pair_status": entry.pair_status or "VIDEO_WITHOUT_SRT",
+                            "destination_rel_path": destination,
+                            "partial_rel_path": partial,
+                        }
                     )
                 ingest.bytes_total = sum(entry.size_bytes for entry in entries)
+                session.flush()
+                for item, payload_item in zip(item_records, payload_items, strict=True):
+                    payload_item["id"] = item.id
                 session.add(
                     Job(
                         kind="ingest",
@@ -136,6 +153,9 @@ def ingest_router(
                                 "ingest_id": ingest.id,
                                 "snapshot_id": snapshot.id,
                                 "worker_id": snapshot.worker_id,
+                                "source_kind": snapshot.source_kind,
+                                "source_fingerprint": snapshot.source_fingerprint,
+                                "items": payload_items,
                             },
                             separators=(",", ":"),
                         ),

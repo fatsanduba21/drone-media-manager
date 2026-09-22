@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 from fastapi import APIRouter, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from drone_media_manager.api.dependencies import require_worker
@@ -22,7 +23,12 @@ from drone_media_manager.api.schemas.jobs import (
     ProgressRequest,
 )
 from drone_media_manager.db.models.core import AuditEvent, Job, Worker
-from drone_media_manager.domain.enums import WorkerStatus
+from drone_media_manager.db.models.ingest import IngestItem, IngestJob
+from drone_media_manager.domain.enums import (
+    IngestItemStatus,
+    IngestStatus,
+    WorkerStatus,
+)
 from drone_media_manager.domain.errors import InvalidTransition, LeaseConflict
 from drone_media_manager.jobs.repository import ClaimedJob, JobRepository
 from drone_media_manager.time import utc_now
@@ -36,11 +42,11 @@ def _audit_hook(
             worker = session.get(Worker, worker_id)
             if worker is not None:
                 worker.status = (
-                    WorkerStatus.BUSY
-                    if action == "job.claim"
-                    else WorkerStatus.ONLINE
+                    WorkerStatus.BUSY if action == "job.claim" else WorkerStatus.ONLINE
                 )
                 worker.updated_at = utc_now()
+        if job.kind == "ingest":
+            _update_ingest_state(session, job, action)
         session.add(
             AuditEvent(
                 actor=worker_id,
@@ -108,9 +114,13 @@ def job_router(session_factory: Callable[[], Session]) -> APIRouter:
                 ),
             )
             try:
-                job = repository.claim(request.worker_id, capabilities, request.lease_seconds)
+                job = repository.claim(
+                    request.worker_id, capabilities, request.lease_seconds
+                )
             except LeaseConflict as error:
-                raise HTTPException(status_code=409, detail={"code": "invalid_lease"}) from error
+                raise HTTPException(
+                    status_code=409, detail={"code": "invalid_lease"}
+                ) from error
         if job is None:
             return Response(status_code=204)
         assert job.lease_token is not None and job.lease_expires_at is not None
@@ -204,3 +214,39 @@ def job_router(session_factory: Callable[[], Session]) -> APIRouter:
         return mutate(job_id, request, credentials, "job.fail")
 
     return router
+
+
+def _update_ingest_state(session: Session, job: Job, action: str) -> None:
+    """Mirror leased job mutations into the server-owned ingest aggregate."""
+    try:
+        payload = json.loads(job.payload_json)
+    except (TypeError, ValueError):
+        return
+    ingest_id = payload.get("ingest_id") if isinstance(payload, dict) else None
+    if not isinstance(ingest_id, str):
+        return
+    ingest = session.get(IngestJob, ingest_id)
+    if ingest is None:
+        return
+    if action == "job.progress":
+        if ingest.status == IngestStatus.DISCOVERED:
+            ingest.status = IngestStatus.COPYING
+        ingest.bytes_verified = min(
+            ingest.bytes_total, round(ingest.bytes_total * job.progress)
+        )
+    elif action == "job.complete":
+        ingest.status = IngestStatus.VERIFIED
+        ingest.bytes_verified = ingest.bytes_total
+        for item in session.scalars(
+            select(IngestItem).where(IngestItem.ingest_job_id == ingest.id)
+        ).all():
+            item.status = IngestItemStatus.VERIFIED
+            item.bytes_copied = item.source_size_bytes
+    elif action == "job.fail":
+        ingest.status = (
+            IngestStatus.INTERRUPTED
+            if job.error
+            in {"lease_expired", "source_unavailable", "destination_unavailable"}
+            else IngestStatus.FAILED
+        )
+        ingest.error = job.error

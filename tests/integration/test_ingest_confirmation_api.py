@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -116,6 +117,14 @@ def test_confirmed_snapshot_enqueues_ingest_job(
         assert len(session.scalars(select(IngestItem)).all()) == 1
         jobs = session.scalars(select(Job)).all()
     assert len(jobs) == 1 and jobs[0].kind == "ingest"
+    payload = json.loads(jobs[0].payload_json)
+    assert payload["items"][0]["source_rel_path"] == "DCIM/DJI_0001.MP4"
+    assert payload["items"][0]["destination_rel_path"].startswith("trips/")
+    assert all(
+        not isinstance(value, str) or not value.startswith(("/", "\\\\"))
+        for item in payload["items"]
+        for value in item.values()
+    )
 
 
 def test_confirmation_is_idempotent_and_rejects_stale_revision(
