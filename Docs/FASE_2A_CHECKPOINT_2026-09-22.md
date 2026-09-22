@@ -38,6 +38,12 @@ Um arquivo de cada tipo (MP4, SRT e JPG) teve SHA-256 recalculado no caminho OMV
 
 Gates: `pytest` geral **200 passed, 1 skipped**; `ruff check .` passou; `mypy src` passou; teste de upgrade/downgrade da migration e testes da 2A passaram. `ruff format --check` passou para os arquivos Python novos e alterados da 2A. O check global de formatação continua fora do escopo pela dívida preexistente registrada no aceite da Fase 1. A suíte emite avisos preexistentes de depreciação de FastAPI/Starlette.
 
-## Pendente: handoff no Mac real
+## Aceite no Mac real
 
-Esta execução ocorreu no Windows. A montagem OMV, o SQLite e a operação com Windows desligado **não foram validados no Mac**. Execute o checklist em [mac-server.md](operations/mac-server.md) no Mac mini antes de declarar o handoff operacional aceito.
+No Mac mini, o checkout de `codex/phase-2a-mac-integration` foi atualizado pelo GitHub no commit `c9713b5`. Antes da migration, foi criado o backup SQLite `dmm.sqlite3.pre-2a-20260922-193409.bak`. A migration aplicada é `0003_catalog`.
+
+`DMM_OMV_ROOT=/Volumes/VOL1_POOL_SSDs/drone-organizado` aponta para o manifesto real em `teste-fase-1/MANIFESTO.json`. O preview encontrou 14 assets, 18 arquivos disponíveis, nenhum ausente e nenhum conflito. A primeira importação criou 14 assets e 18 arquivos; a segunda criou 0 assets e 0 arquivos, com 14 já importados, 0 conflitos e 0 possíveis duplicados. O preview com `--verify-hash` conferiu os 18 arquivos a partir do Mac e não encontrou divergências.
+
+O SQLite operacional confirmou 1 Trip para `teste-fase-1`, 14 `CatalogAsset`, 18 `AssetFile` disponíveis (5 MP4, 4 SRT, 9 JPG) e 2 eventos `ManifestImport`. O serviço `launchd` foi reiniciado; a checagem local `/health` retornou `healthy` para banco, OMV, `ffmpeg`, `ffprobe` e worker.
+
+A verificação final do acesso remoto pela porta 8000 e a confirmação de operação com o Windows desligado continuam pendentes. O checklist está em [mac-server.md](operations/mac-server.md).
