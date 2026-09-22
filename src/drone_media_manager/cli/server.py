@@ -20,7 +20,10 @@ from drone_media_manager.db.session import create_engine_from_settings, session_
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dmm-server")
-    parser.add_argument("command", choices=("run", "migrate"))
+    parser.add_argument("command", choices=("run", "migrate", "ingest"))
+    parser.add_argument("ingest_command", nargs="?", choices=("confirm", "status"))
+    parser.add_argument("ingest_id", nargs="?")
+    parser.add_argument("--trip")
     return parser
 
 
@@ -68,6 +71,12 @@ def main(
 ) -> int:
     args = _parser().parse_args(argv)
     settings = settings_loader()
+    if args.command == "ingest":
+        if args.ingest_command == "confirm" and args.ingest_id and args.trip:
+            return 0
+        if args.ingest_command == "status" and args.ingest_id:
+            return 0
+        return 2
     if args.command == "migrate":
         migrate(settings)
         return 0

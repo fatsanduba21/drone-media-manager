@@ -10,6 +10,7 @@ from typing import Protocol
 from drone_media_manager.api.schemas.jobs import ClaimResponse
 from drone_media_manager.api.schemas.workers import WorkerHeartbeatResponse
 from drone_media_manager.worker.client import WorkerTransportError
+from drone_media_manager.worker.handlers.ingest import IngestJobHandler
 
 
 class WorkerApi(Protocol):
@@ -32,10 +33,12 @@ class WorkerService:
         worker_id: str,
         *,
         wait: Callable[[Event, float], bool] | None = None,
+        handler: IngestJobHandler | None = None,
     ) -> None:
         self._api = api
         self._worker_id = worker_id
         self._wait = wait or _wait_for_stop
+        self._handler = handler or IngestJobHandler()
 
     def run_once(self) -> PollResult:
         try:
@@ -43,7 +46,11 @@ class WorkerService:
             job = self._api.claim(self._worker_id)
         except WorkerTransportError:
             return PollResult.OFFLINE
-        return PollResult.CLAIMED if job is not None else PollResult.IDLE
+        if job is None:
+            return PollResult.IDLE
+        if job.kind == "ingest":
+            self._handler.execute(job)
+        return PollResult.CLAIMED
 
     def run_forever(self, stop_event: Event) -> None:
         offline_attempt = 0
