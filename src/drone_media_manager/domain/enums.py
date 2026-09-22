@@ -11,6 +11,14 @@ class SourceKind(StrEnum):
     NETWORK = "NETWORK"
 
 
+class PairStatus(StrEnum):
+    """Describes the optional-SRT state of one logical media item."""
+
+    PAIRED = "PAIRED"
+    VIDEO_WITHOUT_SRT = "VIDEO_WITHOUT_SRT"
+    ORPHAN_SRT = "ORPHAN_SRT"
+
+
 class JobStatus(StrEnum):
     PENDING = "PENDING"
     LEASED = "LEASED"
