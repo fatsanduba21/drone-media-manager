@@ -8,4 +8,5 @@ __pycache__/
 .coverage
 htmlcov/
 .env
+.uv-cache/
 .dmm-worker-snapshots.json

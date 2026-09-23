@@ -120,3 +120,31 @@ class ManifestImport(Base):
     imported_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
+
+
+class Derivative(Base):
+    """Latest generation attempt for one catalog asset and derivative kind."""
+
+    __tablename__ = "derivatives"
+    __table_args__ = (
+        UniqueConstraint("catalog_asset_id", "kind", name="uq_derivatives_asset_kind"),
+        CheckConstraint("kind IN ('THUMBNAIL', 'PROXY')", name="ck_derivatives_kind"),
+        CheckConstraint("status IN ('READY', 'ERROR')", name="ck_derivatives_status"),
+        Index("ix_derivatives_status", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    catalog_asset_id: Mapped[str] = mapped_column(
+        ForeignKey("catalog_assets.id", ondelete="RESTRICT"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    profile_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    rel_path: Mapped[str | None] = mapped_column(String(1024))
+    output_sha256: Mapped[str | None] = mapped_column(String(64))
+    size_bytes: Mapped[int | None] = mapped_column(Integer)
+    error: Mapped[str | None] = mapped_column(String(1024))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )

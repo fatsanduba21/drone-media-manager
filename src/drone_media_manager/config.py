@@ -22,6 +22,7 @@ class ServerSettings(_BaseSettings):
 
     database_path: Path
     omv_root: Path
+    derivatives_root: Path | None = None
     bind_host: str = "127.0.0.1"
     port: int = 8000
     allow_insecure_lan: bool = False
@@ -55,11 +56,23 @@ class ServerSettings(_BaseSettings):
         if resolved_database_path.is_relative_to(resolved_omv_root):
             raise ValueError("SQLite database must not be under the OMV root")
 
+        derivatives_root = (
+            self.derivatives_root or resolved_database_path.parent / "derivatives"
+        )
+        resolved_derivatives_root = derivatives_root.expanduser().resolve(strict=False)
+        if resolved_derivatives_root.is_relative_to(resolved_omv_root):
+            raise ValueError("Derivatives cache must not be under the OMV root")
+        self.derivatives_root = resolved_derivatives_root
+
         for synced_root in self.synced_roots:
             resolved_synced_root = synced_root.expanduser().resolve(strict=False)
             if resolved_database_path.is_relative_to(resolved_synced_root):
                 raise ValueError(
                     "SQLite database must not be under a synchronized root"
+                )
+            if resolved_derivatives_root.is_relative_to(resolved_synced_root):
+                raise ValueError(
+                    "Derivatives cache must not be under a synchronized root"
                 )
 
         if (self.tls_certfile is None) != (self.tls_keyfile is None):

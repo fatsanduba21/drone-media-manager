@@ -1,0 +1,1 @@
+"""Regenerable local media derivatives."""
