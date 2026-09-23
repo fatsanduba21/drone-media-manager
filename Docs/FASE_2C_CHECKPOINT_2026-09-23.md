@@ -35,14 +35,30 @@
 
 ## Aceite no Mac
 
-Antes da atualização, /health via Tailscale retornou healthy para banco, OMV,
-ffmpeg, ffprobe e worker. O host respondeu na rede, mas a autenticação SSH
-sem senha foi recusada e não havia terminal Mac anexado a esta tarefa.
-Portanto, o checkout do Mac não foi atualizado, o LaunchAgent não foi
-reiniciado e a galeria não foi testada com os 14 assets reais nesta execução.
-Ficam pendentes a abertura da viagem, o filtro dos dois vídeos 9:16, seek nos
-dois proxies, retorno à galeria e uma nova verificação de /health após a
-atualização. O procedimento está em operations/gallery.md.
+O checkout estava limpo em 1c8e475 na branch da Fase 2B. O Mac buscou a
+branch 2C publicada, mudou para ela e executou `uv sync`. O LaunchAgent
+`com.drone-media-manager.server` foi reiniciado para carregar as novas rotas.
+O `curl` imediato após o reinício encontrou a porta 8000 ainda fechada;
+uma nova chamada após a inicialização retornou `healthy` para banco, OMV,
+ffmpeg, ffprobe e worker. Não houve migration SQLite, reimportação do
+manifesto nem regeneração de derivados.
+
+- A API real retornou uma viagem (`teste-fase-1`) com 14 assets e dois vídeos
+  ao filtrar `classification=INSTAGRAM_9X16`.
+- No navegador, a viagem abriu com 14 cards e 14 thumbnails carregados. O
+  filtro mostrou os dois vídeos verticais. Cada detalhe abriu o proxy em
+  406×720, com `object-fit: contain`; o seek chegou a 10 s no primeiro e 14 s
+  no segundo, sem erro de mídia.
+- Ambos os proxies responderam `206 Partial Content` ao solicitar
+  `Range: bytes=1024-2047`, com `Content-Range` e 1024 bytes. O retorno à
+  galeria mostrou novamente os 14 cards, e `/health` final via Tailscale
+  permaneceu `healthy` em todos os componentes.
+
+O aceite foi executado pelo navegador e pela API acessados via Tailscale a
+partir do Windows, com o serviço e os assets reais hospedados no Mac. A
+saída do terminal SSH anexado confirmou o fetch, a troca de branch, o
+`uv sync`, o reinício do LaunchAgent e o HEAD 2c4331b com checkout limpo.
+A verificação local de `/health` no próprio Mac também retornou `healthy`.
 
 O checkout principal Windows permanece em main com os documentos não
 rastreados originais preservados. Não houve merge na main.
