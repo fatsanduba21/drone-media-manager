@@ -6,17 +6,19 @@ from collections.abc import Callable
 from html import escape
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from drone_media_manager.api.auth import require_browser_identity
 from drone_media_manager.api.routes.catalog import (
     _asset,
     _asset_payload,
     _assets,
     _trip,
 )
+from drone_media_manager.catalog.selection import selected_count
 from drone_media_manager.config import ServerSettings
 from drone_media_manager.db.models.catalog import CatalogAsset
 from drone_media_manager.db.models.ingest import Trip
@@ -56,7 +58,12 @@ dt{color:var(--muted);font-size:10px;letter-spacing:.12em;text-transform:upperca
 .player-frame.portrait{max-width:490px;margin:auto}.player-frame video,.player-frame img{display:block;max-width:100%;max-height:72vh;object-fit:contain}
 .player-frame video{width:100%;height:auto}.detail aside{border-top:1px solid var(--accent);padding-top:20px}.detail h1{font-size:clamp(32px,4vw,56px)}
 .facts{grid-template-columns:1fr 1fr;gap:20px;margin:35px 0}.detail .back{display:inline-block;margin-top:25px;border-bottom:1px solid var(--accent);padding-bottom:4px}
-@media(max-width:900px){.filters{grid-template-columns:repeat(2,minmax(0,1fr))}.detail{grid-template-columns:1fr}.player-frame.portrait{margin:0}}
+.selection-bar{margin:0 0 20px;padding:15px 18px;border:1px solid #665238;background:#28241d;color:var(--accent);font-weight:700}
+.selection-form{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-top:1px solid var(--line)}
+.selection-form button{padding:8px 12px;border:1px solid var(--accent);background:transparent;color:var(--accent);font:700 13px 'Trebuchet MS',sans-serif;cursor:pointer}
+.selection-form button:hover{background:var(--accent);color:#191713}
+.selected-status{color:var(--accent);font-size:12px;font-weight:700}
+.detail .selection-form{padding:0 0 18px;border-top:0}@media(max-width:900px){.filters{grid-template-columns:repeat(2,minmax(0,1fr))}.detail{grid-template-columns:1fr}.player-frame.portrait{margin:0}}
 @media(max-width:550px){header{align-items:start}.edition{display:none}.filters{grid-template-columns:1fr 1fr;padding:14px}.filters button{grid-column:1/-1}.thumb{height:210px}}
 """
 
@@ -107,10 +114,25 @@ def _select(name: str, label: str, options: set[str], selected: str | None) -> s
     )
 
 
-def _card(
-    session: Session, asset: CatalogAsset, slug: str, settings: ServerSettings
+def _selection_form(
+    slug: str, asset_id: str, csrf_token: str, selected: bool, *, detail: bool = False
 ) -> str:
-    payload = _asset_payload(session, asset, settings)
+    next_value = '<input type="hidden" name="next" value="detail">' if detail else ""
+    return (
+        f'<form class="selection-form" method="post" action="/gallery/{quote(slug, safe="")}/assets/{quote(asset_id, safe="")}/selection">'
+        f'<input type="hidden" name="csrf_token" value="{escape(csrf_token, quote=True)}">'
+        f'<input type="hidden" name="selected" value="{"false" if selected else "true"}">'
+        + next_value
+        + ('<span class="selected-status">Selecionado</span>' if selected else "")
+        + f'<button type="submit">{"Desmarcar" if selected else "Selecionar"}</button></form>'
+    )
+
+
+def _card(
+    session: Session, asset: CatalogAsset, slug: str, settings: ServerSettings,
+    user_id: str, csrf_token: str,
+) -> str:
+    payload = _asset_payload(session, asset, settings, user_id)
     asset_url = (
         f"/gallery/{quote(slug, safe='')}/assets/{quote(asset.asset_id, safe='')}"
     )
@@ -123,7 +145,7 @@ def _card(
     kind = "Vídeo" if asset.media_type == "VIDEO" else "Foto"
     title = payload["poi"] or kind
     return (
-        f'<a class="card" href="{asset_url}"><div class="thumb">{preview}</div>'
+        f'<div class="card"><a href="{asset_url}"><div class="thumb">{preview}</div>'
         '<div class="card-body">'
         f'<span class="badge">{escape(asset.classification)}</span>'
         f"<h3>{_label(title)}</h3><dl>"
@@ -132,8 +154,9 @@ def _card(
         + _field("Movimento", asset.movement)
         + _field("Pessoas", asset.people)
         + "</dl></div></a>"
+        + _selection_form(slug, asset.asset_id, csrf_token, bool(payload["selected"]))
+        + "</div>"
     )
-
 
 def gallery_router(
     settings: ServerSettings, session_factory: Callable[[], Session]
@@ -178,6 +201,7 @@ def gallery_router(
     @router.get("/gallery/{slug}", response_model=None)
     def assets_page(
         slug: str,
+        request: Request,
         classification: str | None = None,
         poi: str | None = None,
         movement: str | None = None,
@@ -228,7 +252,9 @@ def gallery_router(
                     media_type,
                 )
             )
-            cards = "".join(_card(session, asset, slug, settings) for asset in shown)
+            identity = require_browser_identity(request)
+            count = selected_count(session, identity.user_id, trip.id)
+            cards = "".join(_card(session, asset, slug, settings, identity.user_id, identity.csrf_token) for asset in shown)
         content = (
             '<nav class="crumb"><a href="/gallery">Viagens</a> / '
             + escape(trip.name)
@@ -239,6 +265,7 @@ def gallery_router(
             f'<form class="filters" method="get" action="/gallery/{quote(slug, safe="")}">'
             + fields
             + '<button type="submit">Filtrar</button></form>'
+            + f'<div class="selection-bar">{count} selecionado{"s" if count != 1 else ""}</div>'
             + '<div class="section-head"><h2>Galeria</h2>'
             + f'<span class="count">{len(shown)} de {len(all_assets)} assets</span></div>'
             + (
@@ -250,13 +277,14 @@ def gallery_router(
         return _page(trip.name, content)
 
     @router.get("/gallery/{slug}/assets/{asset_id}", response_model=None)
-    def asset_page(slug: str, asset_id: str) -> HTMLResponse:
+    def asset_page(slug: str, asset_id: str, request: Request) -> HTMLResponse:
         with session_factory() as session:
             trip = _trip(session, slug)
             asset = _asset(session, asset_id)
             if asset.trip_id != trip.id:
                 raise HTTPException(status_code=404, detail={"code": "asset_not_found"})
-            payload = _asset_payload(session, asset, settings)
+            identity = require_browser_identity(request)
+            payload = _asset_payload(session, asset, settings, identity.user_id)
         thumb = payload["thumbnail_url"]
         proxy = payload["proxy_url"]
         portrait = (
@@ -294,6 +322,7 @@ def gallery_router(
             + _field("Tipo", asset.media_type)
             + _field("Captura", asset.capture_date)
             + "</dl>"
+            + _selection_form(slug, asset.asset_id, identity.csrf_token, bool(payload["selected"]), detail=True)
             + f'<a class="back" href="/gallery/{quote(slug, safe="")}">← Voltar à galeria</a>'
             + "</aside></div>"
         )

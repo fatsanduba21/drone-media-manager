@@ -169,3 +169,68 @@ def test_repeated_invalid_login_is_limited(
     for _ in range(5):
         assert login(client, "wrong").status_code == 401
     assert login(client, PASSWORD).status_code == 429
+
+
+def test_selection_persists_across_sessions_and_is_idempotent(
+    auth_app: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, sessions = auth_app
+    assert login(client).status_code == 303
+    with sessions() as session:
+        csrf = session.query(UserSession).one().csrf_token
+    url = f"/api/catalog/assets/{ASSET}/selection"
+    headers = {"X-CSRF-Token": csrf, "Origin": "https://testserver"}
+    assert client.get(f"/api/catalog/assets/{ASSET}").json()["selected"] is False
+    assert client.put(url, json={"selected": True}).status_code == 403
+    for _ in range(2):
+        response = client.put(url, json={"selected": True}, headers=headers)
+        assert response.status_code == 200
+        assert response.json()["selected"] is True
+        assert response.json()["selected_count"] == 1
+    assert client.get(f"/api/catalog/assets/{ASSET}").json()["selected"] is True
+    assert "1 selecionado" in client.get("/gallery/viagem").text
+    assert "Selecionado" in client.get(f"/gallery/viagem/assets/{ASSET}").text
+    assert client.post("/logout", headers=headers, follow_redirects=False).status_code == 303
+    assert login(client).status_code == 303
+    assert client.get(f"/api/catalog/assets/{ASSET}").json()["selected"] is True
+    with sessions() as session:
+        csrf = session.query(UserSession).order_by(UserSession.created_at.desc()).first()
+        assert csrf is not None
+        new_token = csrf.csrf_token
+    response = client.put(url, json={"selected": False}, headers={"X-CSRF-Token": new_token})
+    assert response.status_code == 200
+    assert response.json()["selected_count"] == 0
+    response = client.put(url, json={"selected": False}, headers={"X-CSRF-Token": new_token})
+    assert response.status_code == 200
+    assert response.json()["selected_count"] == 0
+
+
+def test_selection_is_private_to_user_and_gallery_form_checks_csrf(
+    auth_app: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, sessions = auth_app
+    assert login(client).status_code == 303
+    with sessions() as session:
+        csrf = session.query(UserSession).one().csrf_token
+        session.add(User(username="viewer", password_hash=hash_password("another password here")))
+        session.commit()
+    form_url = f"/gallery/viagem/assets/{ASSET}/selection"
+    assert client.post(form_url, data={"selected": "true"}).status_code == 403
+    selected = client.post(
+        form_url,
+        data={"selected": "true", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert selected.status_code == 303
+    assert "Selecionado" in client.get("/gallery/viagem").text
+    with TestClient(client.app, base_url="https://testserver") as other:
+        page = other.get("/login")
+        match = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
+        assert match is not None
+        assert other.post(
+            "/login",
+            data={"username": "viewer", "password": "another password here", "csrf_token": match[1]},
+            follow_redirects=False,
+        ).status_code == 303
+        assert other.get(f"/api/catalog/assets/{ASSET}").json()["selected"] is False
+        assert "0 selecionados" in other.get("/gallery/viagem").text

@@ -16,6 +16,7 @@ from drone_media_manager.api.routes.catalog import catalog_router
 from drone_media_manager.api.routes.health import health_router
 from drone_media_manager.api.routes.ingests import ingest_router
 from drone_media_manager.api.routes.jobs import job_router
+from drone_media_manager.api.routes.selection import selection_router
 from drone_media_manager.api.routes.sources import source_router
 from drone_media_manager.api.routes.workers import worker_router
 from drone_media_manager.config import ServerSettings
@@ -127,6 +128,7 @@ def create_app(settings: ServerSettings, sessions: sessionmaker[Session]) -> Fas
     app.include_router(ingest_router(settings, sessions))
     app.include_router(health_router(settings, sessions))
     app.include_router(catalog_router(settings, sessions))
+    app.include_router(selection_router(sessions))
     app.include_router(gallery_router(settings, sessions))
     @app.middleware("http")
     async def protect_browser_routes(request: Request, call_next: Any) -> Response:
