@@ -16,6 +16,7 @@ dependencies = [
     "httpx",
     "keyring",
     "pillow",
+    "argon2-cffi>=25.1.0",
 ]
 
 [project.scripts]
