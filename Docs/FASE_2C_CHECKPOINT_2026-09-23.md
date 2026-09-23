@@ -1,7 +1,7 @@
 # Checkpoint da Fase 2C — API de catálogo e primeira galeria
 
-**Data:** 23/09/2026  
-**Branch:** codex/phase-2c-gallery  
+**Data:** 23/09/2026
+**Branch:** codex/phase-2c-gallery
 **Base:** origin/main em 1c8e475ae16cbb0c1fbb6dbcdf5b9668327143af
 
 ## Implementação publicada
