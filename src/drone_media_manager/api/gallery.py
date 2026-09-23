@@ -17,6 +17,7 @@ from drone_media_manager.api.routes.catalog import (
     _assets,
     _trip,
 )
+from drone_media_manager.config import ServerSettings
 from drone_media_manager.db.models.catalog import CatalogAsset
 from drone_media_manager.db.models.ingest import Trip
 
@@ -106,8 +107,10 @@ def _select(name: str, label: str, options: set[str], selected: str | None) -> s
     )
 
 
-def _card(session: Session, asset: CatalogAsset, slug: str) -> str:
-    payload = _asset_payload(session, asset)
+def _card(
+    session: Session, asset: CatalogAsset, slug: str, settings: ServerSettings
+) -> str:
+    payload = _asset_payload(session, asset, settings)
     asset_url = (
         f"/gallery/{quote(slug, safe='')}/assets/{quote(asset.asset_id, safe='')}"
     )
@@ -132,7 +135,9 @@ def _card(session: Session, asset: CatalogAsset, slug: str) -> str:
     )
 
 
-def gallery_router(session_factory: Callable[[], Session]) -> APIRouter:
+def gallery_router(
+    settings: ServerSettings, session_factory: Callable[[], Session]
+) -> APIRouter:
     router = APIRouter()
 
     @router.get("/", response_model=None)
@@ -223,7 +228,7 @@ def gallery_router(session_factory: Callable[[], Session]) -> APIRouter:
                     media_type,
                 )
             )
-            cards = "".join(_card(session, asset, slug) for asset in shown)
+            cards = "".join(_card(session, asset, slug, settings) for asset in shown)
         content = (
             '<nav class="crumb"><a href="/gallery">Viagens</a> / '
             + escape(trip.name)
@@ -251,7 +256,7 @@ def gallery_router(session_factory: Callable[[], Session]) -> APIRouter:
             asset = _asset(session, asset_id)
             if asset.trip_id != trip.id:
                 raise HTTPException(status_code=404, detail={"code": "asset_not_found"})
-            payload = _asset_payload(session, asset)
+            payload = _asset_payload(session, asset, settings)
         thumb = payload["thumbnail_url"]
         proxy = payload["proxy_url"]
         portrait = (

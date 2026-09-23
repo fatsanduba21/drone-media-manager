@@ -39,6 +39,12 @@ def _trip_payload(session: Session, trip: Trip) -> dict[str, object]:
     return {"slug": trip.slug, "name": trip.name, "asset_count": count or 0}
 
 
+def _matches(value: str | None, expected: str | None) -> bool:
+    return not expected or (
+        value is not None and value.casefold() == expected.casefold()
+    )
+
+
 def _assets(
     session: Session,
     trip: Trip,
@@ -52,24 +58,18 @@ def _assets(
     query = select(CatalogAsset).where(CatalogAsset.trip_id == trip.id)
     if classification:
         query = query.where(CatalogAsset.classification == classification.upper())
-    if poi:
-        query = query.where(
-            func.lower(
-                func.coalesce(CatalogAsset.poi_final, CatalogAsset.poi_suggested)
-            )
-            == poi.lower()
-        )
-    if movement:
-        query = query.where(func.lower(CatalogAsset.movement) == movement.lower())
-    if people:
-        query = query.where(func.lower(CatalogAsset.people) == people.lower())
     if media_type:
         query = query.where(CatalogAsset.media_type == media_type.upper())
-    return list(
-        session.scalars(
-            query.order_by(CatalogAsset.capture_date, CatalogAsset.asset_id)
-        )
-    )
+    candidates = session.scalars(
+        query.order_by(CatalogAsset.capture_date, CatalogAsset.asset_id)
+    ).all()
+    return [
+        asset
+        for asset in candidates
+        if _matches(asset.poi_final or asset.poi_suggested, poi)
+        and _matches(asset.movement, movement)
+        and _matches(asset.people, people)
+    ]
 
 
 def _asset(session: Session, asset_id: str) -> CatalogAsset:
@@ -81,14 +81,17 @@ def _asset(session: Session, asset_id: str) -> CatalogAsset:
     return asset
 
 
-def _asset_payload(session: Session, asset: CatalogAsset) -> dict[str, object]:
-    ready = set(
-        session.scalars(
-            select(Derivative.kind).where(
-                Derivative.catalog_asset_id == asset.id, Derivative.status == "READY"
-            )
-        )
-    )
+def _asset_payload(
+    session: Session, asset: CatalogAsset, settings: ServerSettings
+) -> dict[str, object]:
+    ready: set[str] = set()
+    kinds = ("THUMBNAIL", "PROXY") if asset.media_type == "VIDEO" else ("THUMBNAIL",)
+    for kind in kinds:
+        try:
+            _ready_path(session, settings, asset, kind)
+        except HTTPException:
+            continue
+        ready.add(kind)
     base = f"/api/catalog/assets/{asset.asset_id}"
     trip_slug = session.scalar(select(Trip.slug).where(Trip.id == asset.trip_id))
     return {
@@ -115,9 +118,8 @@ def _asset_payload(session: Session, asset: CatalogAsset) -> dict[str, object]:
 
 
 def _ready_path(
-    session: Session, settings: ServerSettings, asset_id: str, kind: str
+    session: Session, settings: ServerSettings, asset: CatalogAsset, kind: str
 ) -> tuple[Path, Derivative]:
-    asset = _asset(session, asset_id)
     if kind == "PROXY" and asset.media_type != "VIDEO":
         raise _missing("derivative_not_found")
     derivative = session.scalar(
@@ -219,18 +221,22 @@ def catalog_router(
             return {
                 "trip": _trip_payload(session, trip),
                 "total": len(assets),
-                "assets": [_asset_payload(session, asset) for asset in assets],
+                "assets": [
+                    _asset_payload(session, asset, settings) for asset in assets
+                ],
             }
 
     @router.get("/assets/{asset_id}")
     def asset_detail(asset_id: str) -> dict[str, object]:
         with session_factory() as session:
-            return _asset_payload(session, _asset(session, asset_id))
+            return _asset_payload(session, _asset(session, asset_id), settings)
 
     @router.get("/assets/{asset_id}/thumbnail", response_model=None)
     def thumbnail(asset_id: str, request: Request) -> Response:
         with session_factory() as session:
-            path, derivative = _ready_path(session, settings, asset_id, "THUMBNAIL")
+            path, derivative = _ready_path(
+                session, settings, _asset(session, asset_id), "THUMBNAIL"
+            )
         etag = f'"{derivative.output_sha256}"'
         headers = {"Cache-Control": _CACHE, "ETag": etag}
         if request.headers.get("if-none-match") == etag:
@@ -240,17 +246,15 @@ def catalog_router(
     @router.get("/assets/{asset_id}/proxy", response_model=None)
     def proxy(asset_id: str, request: Request) -> Response:
         with session_factory() as session:
-            path, derivative = _ready_path(session, settings, asset_id, "PROXY")
+            path, derivative = _ready_path(
+                session, settings, _asset(session, asset_id), "PROXY"
+            )
         size = derivative.size_bytes
         assert size is not None
         etag = f'"{derivative.output_sha256}"'
         headers = {"Accept-Ranges": "bytes", "ETag": etag, "Cache-Control": _CACHE}
         range_value = request.headers.get("range")
-        if (
-            range_value
-            and request.headers.get("if-range", etag) == etag
-            and _byte_range(range_value, size) is None
-        ):
+        if range_value and _byte_range(range_value, size) is None:
             headers["Content-Range"] = f"bytes */{size}"
             return Response(status_code=416, headers=headers)
         return FileResponse(path, media_type="video/mp4", headers=headers)

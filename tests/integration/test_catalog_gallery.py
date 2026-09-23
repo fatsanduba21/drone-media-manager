@@ -320,3 +320,80 @@ def test_ready_derivative_with_empty_file_is_not_served(
         derivative.size_bytes = 0
         session.commit()
     assert client.get(f"/api/catalog/assets/{PORTRAIT}/proxy").status_code == 404
+
+
+def test_unicode_editorial_filters_match_visible_values(
+    catalog: tuple[TestClient, sessionmaker[Session], ServerSettings],
+) -> None:
+    client, sessions, _ = catalog
+    with sessions() as session:
+        asset = session.scalar(
+            select(CatalogAsset).where(CatalogAsset.asset_id == PORTRAIT)
+        )
+        assert asset is not None
+        asset.poi_final = "\u00c9vora"
+        asset.movement = "A\u00e7\u00e3o"
+        asset.people = "N\u00e3o"
+        session.commit()
+    for field, value in (
+        ("poi", "\u00c9vora"),
+        ("poi", "\u00e9vora"),
+        ("movement", "a\u00e7\u00e3o"),
+        ("people", "n\u00e3o"),
+    ):
+        response = client.get(
+            f"/api/catalog/trips/{TRIP}/assets", params={field: value}
+        )
+        assert response.status_code == 200
+        assert [item["asset_id"] for item in response.json()["assets"]] == [PORTRAIT]
+    gallery = client.get(f"/gallery/{TRIP}", params={"poi": "\u00c9vora"})
+    assert "1 de 3 assets" in gallery.text
+
+
+def test_suggested_poi_filters_when_final_poi_is_empty(
+    catalog: tuple[TestClient, sessionmaker[Session], ServerSettings],
+) -> None:
+    client, sessions, _ = catalog
+    with sessions() as session:
+        asset = session.scalar(
+            select(CatalogAsset).where(CatalogAsset.asset_id == PORTRAIT)
+        )
+        assert asset is not None
+        asset.poi_final = ""
+        asset.poi_suggested = "\u00c9vora"
+        session.commit()
+    response = client.get(
+        f"/api/catalog/trips/{TRIP}/assets", params={"poi": "\u00c9vora"}
+    )
+    assert [item["asset_id"] for item in response.json()["assets"]] == [PORTRAIT]
+
+
+def test_if_range_date_cannot_bypass_single_range_validation(
+    catalog: tuple[TestClient, sessionmaker[Session], ServerSettings],
+) -> None:
+    client, _, _ = catalog
+    url = f"/api/catalog/assets/{PORTRAIT}/proxy"
+    last_modified = client.get(url).headers["last-modified"]
+    response = client.get(
+        url,
+        headers={
+            "Range": "bytes=0-1,4-5",
+            "If-Range": last_modified,
+        },
+    )
+    assert response.status_code == 416
+    assert response.headers["content-range"] == "bytes */10"
+
+
+def test_missing_ready_file_is_not_advertised_in_catalog_or_gallery(
+    catalog: tuple[TestClient, sessionmaker[Session], ServerSettings],
+) -> None:
+    client, _, settings = catalog
+    path = settings.derivatives_root / PHOTO[:2] / PHOTO / "grid-v1.jpg"
+    path.unlink()
+    detail = client.get(f"/api/catalog/assets/{PHOTO}")
+    assert detail.status_code == 200
+    assert detail.json()["thumbnail_url"] is None
+    gallery = client.get(f"/gallery/{TRIP}")
+    assert gallery.status_code == 200
+    assert "Pr\u00e9via indispon\u00edvel" in gallery.text

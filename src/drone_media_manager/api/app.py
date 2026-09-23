@@ -125,6 +125,6 @@ def create_app(settings: ServerSettings, sessions: sessionmaker[Session]) -> Fas
     app.include_router(ingest_router(settings, sessions))
     app.include_router(health_router(settings, sessions))
     app.include_router(catalog_router(settings, sessions))
-    app.include_router(gallery_router(sessions))
+    app.include_router(gallery_router(settings, sessions))
     app.add_middleware(BoundedBodyMiddleware)
     return app
