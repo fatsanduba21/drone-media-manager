@@ -6,10 +6,11 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from drone_media_manager.api.auth import auth_router, browser_gate
 from drone_media_manager.api.gallery import gallery_router
 from drone_media_manager.api.routes.catalog import catalog_router
 from drone_media_manager.api.routes.health import health_router
@@ -119,6 +120,7 @@ def create_app(settings: ServerSettings, sessions: sessionmaker[Session]) -> Fas
             content={"error": {"code": "validation_error", "details": errors}},
         )
 
+    app.include_router(auth_router(sessions))
     app.include_router(worker_router(settings, sessions))
     app.include_router(job_router(sessions))
     app.include_router(source_router(sessions))
@@ -126,5 +128,9 @@ def create_app(settings: ServerSettings, sessions: sessionmaker[Session]) -> Fas
     app.include_router(health_router(settings, sessions))
     app.include_router(catalog_router(settings, sessions))
     app.include_router(gallery_router(settings, sessions))
+    @app.middleware("http")
+    async def protect_browser_routes(request: Request, call_next: Any) -> Response:
+        return await browser_gate(request, call_next, sessions)
+
     app.add_middleware(BoundedBodyMiddleware)
     return app
