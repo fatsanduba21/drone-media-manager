@@ -1,7 +1,7 @@
 # Checkpoint da Fase 2B — thumbnails e proxies
 
-**Data:** 22/09/2026  
-**Branch:** `codex/phase-2b-derivatives`  
+**Data:** 22/09/2026
+**Branch:** `codex/phase-2b-derivatives`
 **Base:** `b0a90cd` (`codex/phase-2a-mac-integration`)
 
 ## Implementação
