@@ -92,7 +92,8 @@ async def _form_fields(request: Request) -> dict[str, str]:
         raise HTTPException(status_code=415, detail={"code": "form_required"})
     try:
         parsed = parse_qs(
-            (await request.body()).decode("utf-8"), keep_blank_values=True,
+            (await request.body()).decode("utf-8"),
+            keep_blank_values=True,
             max_num_fields=8,
         )
     except (UnicodeDecodeError, ValueError) as error:
@@ -144,7 +145,7 @@ def auth_router(session_factory: Callable[[], Session]) -> APIRouter:
         page = (
             '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
-            '<title>Entrar · Atlas de voo</title></head><body><main>'
+            "<title>Entrar · Atlas de voo</title></head><body><main>"
             '<h1>Entrar no Atlas de voo</h1><form method="post" action="/login">'
             '<label>Usuário<input name="username" autocomplete="username" required></label>'
             '<label>Senha<input name="password" type="password" autocomplete="current-password" required></label>'
@@ -153,8 +154,13 @@ def auth_router(session_factory: Callable[[], Session]) -> APIRouter:
         )
         response = HTMLResponse(page, headers={"Cache-Control": "no-store"})
         response.set_cookie(
-            LOGIN_CSRF_COOKIE, token, max_age=600, secure=True, httponly=True,
-            samesite="lax", path="/",
+            LOGIN_CSRF_COOKIE,
+            token,
+            max_age=600,
+            secure=True,
+            httponly=True,
+            samesite="lax",
+            path="/",
         )
         return response
 
@@ -166,7 +172,8 @@ def auth_router(session_factory: Callable[[], Session]) -> APIRouter:
         cookie_csrf = request.cookies.get(LOGIN_CSRF_COOKIE, "")
         origin = request.headers.get("origin")
         if (
-            not csrf or not cookie_csrf
+            not csrf
+            or not cookie_csrf
             or not hmac.compare_digest(csrf, cookie_csrf)
             or (origin and origin != str(request.base_url).rstrip("/"))
         ):
@@ -185,11 +192,14 @@ def auth_router(session_factory: Callable[[], Session]) -> APIRouter:
             )
             if user is None or not valid:
                 throttle.failure(ip, username)
-                raise HTTPException(status_code=401, detail={"code": "invalid_credentials"})
+                raise HTTPException(
+                    status_code=401, detail={"code": "invalid_credentials"}
+                )
             throttle.success(ip, username)
             token = secrets.token_urlsafe(32)
             record = UserSession(
-                token_digest=_token_digest(token), user_id=user.id,
+                token_digest=_token_digest(token),
+                user_id=user.id,
                 csrf_token=secrets.token_urlsafe(32),
                 expires_at=utc_now() + timedelta(seconds=SESSION_SECONDS),
             )
@@ -197,27 +207,40 @@ def auth_router(session_factory: Callable[[], Session]) -> APIRouter:
             session.commit()
         response = RedirectResponse("/gallery", status_code=303)
         response.set_cookie(
-            SESSION_COOKIE, token, max_age=SESSION_SECONDS, secure=True,
-            httponly=True, samesite="lax", path="/",
+            SESSION_COOKIE,
+            token,
+            max_age=SESSION_SECONDS,
+            secure=True,
+            httponly=True,
+            samesite="lax",
+            path="/",
         )
         response.headers["Cache-Control"] = "no-store"
         return response
 
     @router.post("/logout", response_model=None)
-    def logout(request: Request) -> Response:
+    async def logout(request: Request) -> Response:
         _require_https(request)
         identity = browser_identity(request, session_factory)
         if identity is None:
             raise HTTPException(status_code=401, detail={"code": "login_required"})
         request.state.browser_identity = identity
-        require_csrf(request, request.headers.get("x-csrf-token"))
+        csrf = request.headers.get("x-csrf-token")
+        if csrf is None and request.headers.get("content-type", "").startswith(
+            "application/x-www-form-urlencoded"
+        ):
+            fields = await _form_fields(request)
+            csrf = fields.get("csrf_token")
+        require_csrf(request, csrf)
         with session_factory() as session:
             record = session.get(UserSession, identity.token_digest)
             if record is not None:
                 record.revoked_at = utc_now()
                 session.commit()
         response = RedirectResponse("/login", status_code=303)
-        response.delete_cookie(SESSION_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+        response.delete_cookie(
+            SESSION_COOKIE, path="/", secure=True, httponly=True, samesite="lax"
+        )
         response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -233,7 +256,9 @@ async def browser_gate(
     path = request.url.path
     if path == "/gallery" or path.startswith(("/gallery/", "/api/catalog/")):
         if request.url.scheme != "https":
-            return JSONResponse(status_code=426, content={"error": {"code": "https_required"}})
+            return JSONResponse(
+                status_code=426, content={"error": {"code": "https_required"}}
+            )
         identity = browser_identity(request, session_factory)
         if identity is None:
             if path.startswith("/gallery"):

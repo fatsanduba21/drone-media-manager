@@ -13,6 +13,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from drone_media_manager.api.auth import auth_router, browser_gate
 from drone_media_manager.api.gallery import gallery_router
 from drone_media_manager.api.routes.catalog import catalog_router
+from drone_media_manager.api.routes.downloads import downloads_router
 from drone_media_manager.api.routes.health import health_router
 from drone_media_manager.api.routes.ingests import ingest_router
 from drone_media_manager.api.routes.jobs import job_router
@@ -128,8 +129,10 @@ def create_app(settings: ServerSettings, sessions: sessionmaker[Session]) -> Fas
     app.include_router(ingest_router(settings, sessions))
     app.include_router(health_router(settings, sessions))
     app.include_router(catalog_router(settings, sessions))
+    app.include_router(downloads_router(settings, sessions))
     app.include_router(selection_router(sessions))
     app.include_router(gallery_router(settings, sessions))
+
     @app.middleware("http")
     async def protect_browser_routes(request: Request, call_next: Any) -> Response:
         return await browser_gate(request, call_next, sessions)

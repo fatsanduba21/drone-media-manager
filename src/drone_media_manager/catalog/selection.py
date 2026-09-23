@@ -14,12 +14,15 @@ from drone_media_manager.time import utc_now
 
 
 def is_selected(session: Session, user_id: str, catalog_asset_id: str) -> bool:
-    return session.scalar(
-        select(AssetSelection.id).where(
-            AssetSelection.user_id == user_id,
-            AssetSelection.catalog_asset_id == catalog_asset_id,
+    return (
+        session.scalar(
+            select(AssetSelection.id).where(
+                AssetSelection.user_id == user_id,
+                AssetSelection.catalog_asset_id == catalog_asset_id,
+            )
         )
-    ) is not None
+        is not None
+    )
 
 
 def selected_count(session: Session, user_id: str, trip_id: str) -> int:

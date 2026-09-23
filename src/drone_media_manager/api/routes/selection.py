@@ -32,7 +32,9 @@ def selection_router(session_factory: Callable[[], Session]) -> APIRouter:
             return {
                 "asset_id": asset.asset_id,
                 "selected": change.selected,
-                "selected_count": selected_count(session, identity.user_id, asset.trip_id),
+                "selected_count": selected_count(
+                    session, identity.user_id, asset.trip_id
+                ),
             }
 
     @router.post("/gallery/{slug}/assets/{asset_id}/selection", response_model=None)

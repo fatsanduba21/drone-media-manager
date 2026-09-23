@@ -47,8 +47,11 @@ def auth_app(tmp_path: Path) -> Iterator[tuple[TestClient, sessionmaker[Session]
         session.add_all([user, trip])
         session.flush()
         asset = CatalogAsset(
-            asset_id=ASSET, trip_id=trip.id, media_type="VIDEO",
-            classification="INSTAGRAM_9X16", verification_status="VERIFIED",
+            asset_id=ASSET,
+            trip_id=trip.id,
+            media_type="VIDEO",
+            classification="INSTAGRAM_9X16",
+            verification_status="VERIFIED",
         )
         session.add(asset)
         session.flush()
@@ -61,14 +64,22 @@ def auth_app(tmp_path: Path) -> Iterator[tuple[TestClient, sessionmaker[Session]
             path = settings.derivatives_root / rel_path
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(content)
-            session.add(Derivative(
-                catalog_asset_id=asset.id, kind=kind, status="READY",
-                profile_version=profile, source_sha256="f" * 64,
-                rel_path=rel_path, output_sha256=hashlib.sha256(content).hexdigest(),
-                size_bytes=len(content),
-            ))
+            session.add(
+                Derivative(
+                    catalog_asset_id=asset.id,
+                    kind=kind,
+                    status="READY",
+                    profile_version=profile,
+                    source_sha256="f" * 64,
+                    rel_path=rel_path,
+                    output_sha256=hashlib.sha256(content).hexdigest(),
+                    size_bytes=len(content),
+                )
+            )
         session.commit()
-    with TestClient(create_app(settings, sessions), base_url="https://testserver") as client:
+    with TestClient(
+        create_app(settings, sessions), base_url="https://testserver"
+    ) as client:
         yield client, sessions
     engine.dispose()
 
@@ -117,10 +128,14 @@ def test_login_cookie_logout_and_session_revocation(
         record = session.query(UserSession).one()
         csrf = record.csrf_token
     assert client.post("/logout").status_code == 403
-    assert client.post(
-        "/logout", headers={"X-CSRF-Token": csrf, "Origin": "https://testserver"},
-        follow_redirects=False,
-    ).status_code == 303
+    assert (
+        client.post(
+            "/logout",
+            headers={"X-CSRF-Token": csrf, "Origin": "https://testserver"},
+            follow_redirects=False,
+        ).status_code
+        == 303
+    )
     assert client.get("/api/catalog/trips").status_code == 401
 
 
@@ -152,14 +167,25 @@ def test_http_cannot_use_a_copied_session_cookie(
         )
     assert response.status_code == 426
 
+
 def test_login_rejects_http_and_csrf_failure(
     auth_app: tuple[TestClient, sessionmaker[Session]],
 ) -> None:
     client, _ = auth_app
     with TestClient(client.app, base_url="http://testserver") as insecure:
         assert insecure.get("/login").status_code == 426
-        assert insecure.post("/login", data={"username": "editor", "password": PASSWORD}).status_code == 426
-    assert client.post("/login", data={"username": "editor", "password": PASSWORD}).status_code == 403
+        assert (
+            insecure.post(
+                "/login", data={"username": "editor", "password": PASSWORD}
+            ).status_code
+            == 426
+        )
+    assert (
+        client.post(
+            "/login", data={"username": "editor", "password": PASSWORD}
+        ).status_code
+        == 403
+    )
 
 
 def test_repeated_invalid_login_is_limited(
@@ -190,17 +216,26 @@ def test_selection_persists_across_sessions_and_is_idempotent(
     assert client.get(f"/api/catalog/assets/{ASSET}").json()["selected"] is True
     assert "1 selecionado" in client.get("/gallery/viagem").text
     assert "Selecionado" in client.get(f"/gallery/viagem/assets/{ASSET}").text
-    assert client.post("/logout", headers=headers, follow_redirects=False).status_code == 303
+    assert (
+        client.post("/logout", headers=headers, follow_redirects=False).status_code
+        == 303
+    )
     assert login(client).status_code == 303
     assert client.get(f"/api/catalog/assets/{ASSET}").json()["selected"] is True
     with sessions() as session:
-        csrf = session.query(UserSession).order_by(UserSession.created_at.desc()).first()
+        csrf = (
+            session.query(UserSession).order_by(UserSession.created_at.desc()).first()
+        )
         assert csrf is not None
         new_token = csrf.csrf_token
-    response = client.put(url, json={"selected": False}, headers={"X-CSRF-Token": new_token})
+    response = client.put(
+        url, json={"selected": False}, headers={"X-CSRF-Token": new_token}
+    )
     assert response.status_code == 200
     assert response.json()["selected_count"] == 0
-    response = client.put(url, json={"selected": False}, headers={"X-CSRF-Token": new_token})
+    response = client.put(
+        url, json={"selected": False}, headers={"X-CSRF-Token": new_token}
+    )
     assert response.status_code == 200
     assert response.json()["selected_count"] == 0
 
@@ -212,7 +247,11 @@ def test_selection_is_private_to_user_and_gallery_form_checks_csrf(
     assert login(client).status_code == 303
     with sessions() as session:
         csrf = session.query(UserSession).one().csrf_token
-        session.add(User(username="viewer", password_hash=hash_password("another password here")))
+        session.add(
+            User(
+                username="viewer", password_hash=hash_password("another password here")
+            )
+        )
         session.commit()
     form_url = f"/gallery/viagem/assets/{ASSET}/selection"
     assert client.post(form_url, data={"selected": "true"}).status_code == 403
@@ -227,10 +266,31 @@ def test_selection_is_private_to_user_and_gallery_form_checks_csrf(
         page = other.get("/login")
         match = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
         assert match is not None
-        assert other.post(
-            "/login",
-            data={"username": "viewer", "password": "another password here", "csrf_token": match[1]},
-            follow_redirects=False,
-        ).status_code == 303
+        assert (
+            other.post(
+                "/login",
+                data={
+                    "username": "viewer",
+                    "password": "another password here",
+                    "csrf_token": match[1],
+                },
+                follow_redirects=False,
+            ).status_code
+            == 303
+        )
         assert other.get(f"/api/catalog/assets/{ASSET}").json()["selected"] is False
         assert "0 selecionados" in other.get("/gallery/viagem").text
+
+
+def test_gallery_has_working_logout_form(
+    auth_app: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, sessions = auth_app
+    assert login(client).status_code == 303
+    page = client.get("/gallery")
+    assert 'action="/logout"' in page.text
+    with sessions() as session:
+        csrf = session.query(UserSession).one().csrf_token
+    response = client.post("/logout", data={"csrf_token": csrf}, follow_redirects=False)
+    assert response.status_code == 303
+    assert client.get("/api/catalog/trips").status_code == 401
