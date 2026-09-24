@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-import pytest
 from alembic import command
 from pydantic import SecretStr
 from sqlalchemy import select, text
@@ -143,12 +142,11 @@ def test_legacy_range_can_be_corrected_without_srt(tmp_path: Path) -> None:
         ] == [None, group.id, group.id]
         assign_range(session, trip.id, assets[0].id, assets[2].id, group_id=group.id)
         session.commit()
-        with pytest.raises(ValueError, match="would_split_group"):
-            assign_range(session, trip.id, assets[1].id, assets[1].id, name="Meio")
-        assert all(
-            asset.location_group_id == group.id
-            for asset in ordered_assets(session, trip.id)
-        )
+        middle = assign_range(session, trip.id, assets[1].id, assets[1].id, name="Meio")
+        session.commit()
+        assert [
+            asset.location_group_id for asset in ordered_assets(session, trip.id)
+        ] == [group.id, middle.id, group.id]
     engine.dispose()
 
 

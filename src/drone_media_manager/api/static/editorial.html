@@ -65,13 +65,14 @@ h2{font:normal 25px/1.2 Georgia,serif;margin:0}.hint{color:var(--muted);font-siz
 <aside class="side">
 <div class="panel">
 <h2>Intervalo</h2>
-<p>Selecione uma sequência contínua para criar um grupo ou ajustar as fronteiras de um grupo existente.</p>
+<p>Selecione uma sequência contínua para criar um grupo, adicionar arquivos ou substituir os membros de um grupo existente.</p>
 <div id="selection" class="selection">Nenhum arquivo selecionado</div>
 <div class="stack">
 <div class="field"><label for="name">Nome do grupo</label><input id="name" maxlength="255" placeholder="Ex.: Praia do Bode"></div>
 <button id="create" class="action primary" type="button">Criar grupo</button>
 <div class="field"><label for="group">Grupo existente</label><select id="group"></select></div>
-<button id="replace" class="action" type="button">Aplicar intervalo ao grupo</button>
+<button id="add" class="action" type="button">Adicionar seleção ao grupo</button>
+<button id="replace" class="action" type="button">Substituir membros do grupo</button>
 </div>
 </div>
 <div class="panel"><h2>Sugestões</h2><p>Use uma sugestão ou selecione novos limites antes de confirmar.</p><div id="suggestions"></div></div>
@@ -129,7 +130,7 @@ function render(){
   if(!state.assets.length){const empty=document.createElement('div');empty.className='empty';empty.textContent='Nenhum asset no catálogo desta viagem.';grid.append(empty)}
   const bounds=selectionBounds();
   $('selection').textContent=bounds?selected.length+' arquivo(s) · '+String(state.assets.findIndex(a=>a.id===bounds.start_asset_id)+1).padStart(3,'0')+'–'+String(state.assets.findIndex(a=>a.id===bounds.end_asset_id)+1).padStart(3,'0'):'Nenhum arquivo selecionado';
-  $('create').disabled=!bounds;$('replace').disabled=!bounds||!state.groups.length;
+  $('create').disabled=!bounds;$('add').disabled=!bounds||!state.groups.length;$('replace').disabled=!bounds||!state.groups.length;
   const groupSelect=$('group'),old=groupSelect.value;groupSelect.replaceChildren();
   for(const group of state.groups){const option=document.createElement('option');option.value=group.id;option.textContent=group.name;groupSelect.append(option)}
   if(state.groups.some(group=>group.id===old))groupSelect.value=old;
@@ -172,12 +173,14 @@ async function createGroup(){
 async function action(fn){try{notice('');await fn()}catch(error){notice(error.message,true)}}
 $('trip').onchange=()=>action(loadState);
 $('create').onclick=()=>action(createGroup);
-$('replace').onclick=()=>action(async()=>{
+async function updateGroup(mode){
   const bounds=selectionBounds();if(!bounds)return;
   const id=$('group').value;
-  await api('/api/editorial/trips/'+encodeURIComponent(state.trip.id)+'/groups/'+encodeURIComponent(id),{method:'PUT',body:JSON.stringify({...bounds,name:$('name').value.trim()||null})});
-  notice('Fronteiras atualizadas.');$('name').value='';await loadState();
-});
+  await api('/api/editorial/trips/'+encodeURIComponent(state.trip.id)+'/groups/'+encodeURIComponent(id),{method:'PUT',body:JSON.stringify({...bounds,name:$('name').value.trim()||null,mode})});
+  notice(mode==='add'?'Arquivos adicionados ao grupo.':'Membros do grupo substituídos.');$('name').value='';await loadState();
+}
+$('add').onclick=()=>action(()=>updateGroup('add'));
+$('replace').onclick=()=>action(()=>updateGroup('replace'));
 $('analyze').onclick=()=>action(async()=>{
   $('analyze').disabled=true;
   try{await api('/api/editorial/trips/'+encodeURIComponent($('trip').value)+'/analyze',{method:'POST'});await loadState();notice('Sugestões atualizadas. Grupos confirmados preservados.')}

@@ -6,6 +6,7 @@ import json
 from collections.abc import Callable
 from html import escape
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
@@ -34,6 +35,10 @@ class RangeRequest(BaseModel):
     start_asset_id: str
     end_asset_id: str
     name: str | None = Field(default=None, max_length=255)
+
+
+class GroupUpdateRequest(RangeRequest):
+    mode: Literal["add", "replace"] = "replace"
 
 
 def _group_data(group: LocationGroup) -> dict[str, object]:
@@ -224,7 +229,7 @@ def editorial_router(
 
     @router.put("/api/editorial/trips/{trip_id}/groups/{group_id}")
     def update_group(
-        trip_id: str, group_id: str, payload: RangeRequest, request: Request
+        trip_id: str, group_id: str, payload: GroupUpdateRequest, request: Request
     ) -> dict[str, object]:
         identity = admin(request, write=True)
         with sessions() as session, session.begin():
@@ -236,6 +241,7 @@ def editorial_router(
                     payload.end_asset_id,
                     name=payload.name,
                     group_id=group_id,
+                    replace_existing=payload.mode == "replace",
                     actor=identity.user_id,
                 )
             except ValueError as error:

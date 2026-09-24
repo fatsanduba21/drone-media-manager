@@ -116,16 +116,35 @@ def test_legacy_gallery_and_range_update(tmp_path: Path) -> None:
         f"/api/editorial/trips/{trip_id}/groups",
         json={
             "start_asset_id": assets[0]["id"],
-            "end_asset_id": assets[1]["id"],
+            "end_asset_id": assets[0]["id"],
             "name": "Casa",
         },
         headers=write_headers,
     )
     assert created.status_code == 201
     group_id = created.json()["id"]
+    group_url = f"/api/editorial/trips/{trip_id}/groups/{group_id}"
+    added = client.put(
+        group_url,
+        json={
+            "start_asset_id": assets[2]["id"],
+            "end_asset_id": assets[2]["id"],
+            "mode": "add",
+        },
+        headers=write_headers,
+    )
+    assert added.status_code == 200
+    assert [
+        item["location_group_id"]
+        for item in client.get(f"/api/editorial/trips/{trip_id}").json()["assets"]
+    ] == [group_id, None, group_id]
     corrected = client.put(
-        f"/api/editorial/trips/{trip_id}/groups/{group_id}",
-        json={"start_asset_id": assets[1]["id"], "end_asset_id": assets[2]["id"]},
+        group_url,
+        json={
+            "start_asset_id": assets[1]["id"],
+            "end_asset_id": assets[2]["id"],
+            "mode": "replace",
+        },
         headers=write_headers,
     )
     assert corrected.status_code == 200

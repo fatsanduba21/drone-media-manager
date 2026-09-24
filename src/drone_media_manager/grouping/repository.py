@@ -186,9 +186,10 @@ def assign_range(
     *,
     name: str | None = None,
     group_id: str | None = None,
+    replace_existing: bool = True,
     actor: str = "human",
 ) -> LocationGroup:
-    """Assign one inclusive, contiguous range; group_id replaces its old range."""
+    """Assign an inclusive range, optionally retaining existing group members."""
     assets = ordered_assets(session, trip_id)
     positions = {asset.id: index for index, asset in enumerate(assets)}
     if start_asset_id not in positions or end_asset_id not in positions:
@@ -196,18 +197,6 @@ def assign_range(
     start, end = positions[start_asset_id], positions[end_asset_id]
     if start > end:
         raise ValueError("reversed_range")
-    target = group_id or "__new_group__"
-    predicted = [
-        None
-        if group_id is not None and asset.location_group_id == group_id
-        else asset.location_group_id
-        for asset in assets
-    ]
-    predicted[start : end + 1] = [target] * (end - start + 1)
-    for other in {value for value in predicted if value is not None}:
-        indices = [index for index, value in enumerate(predicted) if value == other]
-        if indices[-1] - indices[0] + 1 != len(indices):
-            raise ValueError("would_split_group")
     if group_id is None:
         value = (name or "").strip()
         if not value or len(value) > 255:
@@ -222,9 +211,10 @@ def assign_range(
         if existing is None or existing.trip_id != trip_id:
             raise ValueError("group_not_in_trip")
         group = existing
-        for asset in assets:
-            if asset.location_group_id == group_id:
-                asset.location_group_id = None
+        if replace_existing:
+            for asset in assets:
+                if asset.location_group_id == group_id:
+                    asset.location_group_id = None
         if name is not None:
             value = name.strip()
             if not value or len(value) > 255:

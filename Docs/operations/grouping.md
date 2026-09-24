@@ -16,7 +16,8 @@ A página e a API editorial exigem HTTPS e a sessão autenticada da galeria, inc
 - Escolha a viagem e clique em **Sugerir fronteiras**. A operação lê SRTs disponíveis e usa GPS, hora confiável e interrupções da sequência de nomes.
 - Revise as sugestões na folha de contato. Clique no primeiro arquivo e use **Shift + clique** no último para selecionar um intervalo inclusivo.
 - Informe um nome ou use o nome provisório `Grupo N`; clique em **Criar grupo**. Uma sugestão também pode ser confirmada diretamente.
-- Para corrigir fronteiras, selecione o novo intervalo, escolha o grupo existente e clique em **Aplicar intervalo ao grupo**.
+- Para incluir outro lote no mesmo grupo, selecione o intervalo, escolha o grupo existente e clique em **Adicionar seleção ao grupo**. Os membros anteriores permanecem no grupo, mesmo quando os lotes não são adjacentes.
+- Para refazer os membros de um grupo, selecione o intervalo desejado e clique em **Substituir membros do grupo**. Esta ação remove do grupo os membros fora da seleção.
 - Uma viagem sem SRT continua organizável pela ordem dos arquivos, thumbnails e intervalos manuais. Se um thumbnail estiver ausente, a grade mostra o nome do arquivo e um aviso; gere novamente os derivados.
 
 Reprocessar não modifica grupos confirmados. Cada execução guarda novas sugestões e marca as anteriores como substituídas. A interface não mostra percentuais de confiança porque o algoritmo inicial ainda não foi calibrado com viagens reais.
