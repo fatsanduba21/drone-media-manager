@@ -69,6 +69,11 @@ Compare o SHA-256 de cada arquivo com o sha256 do AssetFile ORIGINAL cadastrado,
 
 Confirme que nenhum arquivo é thumbnail, proxy ou SRT. Teste também um download individual. Em janela anônima, a URL direta de original, thumbnail e proxy deve responder 401; /gallery deve enviar ao login. Confira /health no fim. Registre HEAD, backup, migration, certificado, contagem, hashes e resultados no checkpoint. Marque como pendente cada passo não executado no Mac.
 
+## Downloads parados em 0 bytes no Mac mini
+
+Se a galeria e as miniaturas carregam, mas o Chrome ou Brave mostram originais em 0 bytes indefinidamente, verifique primeiro a autorização de acesso ao volume pelo macOS no Mac mini. Neste caso real, o serviço iniciou via uv, e havia uma solicitação do macOS para permitir que uv acessasse o disco. Depois da autorização, os downloads funcionaram e os SHA-256 conferiram.
+
+Um status 200 ou 206 nos logs de GET /download confirma apenas os cabeçalhos: o corpo pode continuar bloqueado. A leitura direta do arquivo pelo Terminal também pode funcionar enquanto o serviço lançado pelo LaunchAgent está aguardando permissão própria. Abra a sessão gráfica do Mac mini, procure o diálogo de permissão para uv e confira Ajustes do Sistema > Privacidade e Segurança. Após conceder a permissão, faça um download de teste e confira o SHA-256. Não altere Tailscale, TLS ou código antes de verificar esse bloqueio quando os sintomas coincidirem.
 ## Recuperação
 
 Em falha, mantenha o backup intacto. Para voltar à versão anterior, pare o serviço, restaure a base verificada (considerando arquivos auxiliares SQLite), volte ao commit anterior e execute uv sync correspondente antes do restart. Não apague mídia, cache nem .env. A restauração elimina seleções criadas após o backup.

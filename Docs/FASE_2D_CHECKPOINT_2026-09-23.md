@@ -27,12 +27,16 @@ A usuária usa Chrome como navegador padrão no MacBook e pode usar Safari. O bo
 
 ## Estado remoto do Mac e aceite
 
-A consulta ao Tailscale do Windows mostrou o Mac online no DNS mac-mini-de-sergio-3.tail689ec7.ts.net. Em 23/09/2026, a tentativa de HTTPS confiável na porta 8000 falhou na negociação TLS, enquanto o endpoint HTTP existente respondeu na mesma porta. Um SSH novo em modo não interativo foi negado por autenticação; a sessão atual não permite executar comandos administrativos no Mac sem interação local. Por isso, nenhum backup operacional, migration, criação de usuário, alteração de TLS, reinício ou download real foi executado nesta fase. Não houve login com credenciais em HTTP.
+O usuário aplicou o procedimento no Mac mini: backup SQLite, HTTPS nativo na porta 8000, migration 0005 e criação local do usuário editor. O servidor iniciou com HTTPS no nome Tailscale mac-mini-de-sergio-3.tail689ec7.ts.net; a consulta remota a /health respondeu 200 e mostrou os componentes saudáveis. O login autenticado respondeu 303. A galeria apresentou os 14 assets da viagem de teste e permitiu solicitar downloads individuais dos originais.
 
-**Pendências de aceite no Mac:** backup SQLite verificado antes da migration; configuração e verificação de HTTPS confiável; atualização do checkout pela branch publicada; migration 0005; criação local do usuário; teste de login e proteção sem sessão; seleção de três assets reais e persistência após fechar/reabrir; três arquivos separados no Chrome e permissão de downloads múltiplos; SHA-256 contra AssetFile ORIGINAL; download individual; /health final. O procedimento completo está em Docs/operations/phase-2d.md.
+Inicialmente os downloads ficavam em 0 bytes. O servidor registrava GET de /download com 200, e um pedido HTTP Range de 1 KB devolvia 206 e Content-Length 1024, mas a leitura do corpo expirava inclusive em um cliente httpx executado no próprio Mac mini. A leitura direta de 1 MB do mesmo arquivo OMV no Terminal levou 0,109 s. O log do macOS atribuiu a solicitação de acesso ao disco ao processo uv responsável pelo serviço. Ao abrir o Mac, o usuário encontrou a autorização de acesso ao disco pendente para uv, concedeu-a e os downloads passaram a funcionar. Esse diagnóstico aponta para a permissão do macOS, não para uma falha do Tailscale ou dos navegadores.
+
+O usuário comparou os SHA-256 dos arquivos baixados com os SHA-256 dos AssetFile ORIGINAL correspondentes e confirmou que todos coincidiram. Esta confirmação conclui o teste de integridade dos downloads feitos; os valores dos hashes e o número exato de arquivos não foram transcritos neste checkpoint.
+
+**Ainda para a Fase 2E:** executar o fluxo completo no MacBook da usuária, na LAN, com o Windows desligado; confirmar persistência após fechar e reabrir o navegador; filtro INSTAGRAM_9X16; proxy com seek; três originais separados, nomes editoriais e SHA-256 nesse cenário; download individual; proteção sem sessão e /health final. Não declarar aceite end-to-end antes dessas evidências. O procedimento operacional está em Docs/operations/phase-2d.md.
 
 ## Riscos operacionais
 
 O certificado Tailscale salvo como arquivo exige renovação e reinício do serviço para carregar arquivos renovados. Ao ativar TLS na porta atual, o worker Windows com DMM_SERVER_URL em http:// precisa mudar para https:// com o nome do certificado; suas rotas e tokens permanecem os mesmos. Um arquivo do OMV pode desaparecer após o preflight; cada GET individual revalida e o painel oferece repetição por link individual. A permissão para downloads múltiplos depende do Chrome no MacBook, ainda não validado no ambiente real.
 
-A Fase 2E não foi iniciada. Não houve merge ou push para main.
+A implementação 2D está concluída. A Fase 2E ainda não foi executada. Não houve merge ou push para main.
