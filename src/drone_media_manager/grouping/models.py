@@ -29,6 +29,7 @@ class LocationGroup(Base):
         String(32), nullable=False, default="HUMAN"
     )
     name_locked: Mapped[bool] = mapped_column(nullable=False, default=True)
+    provider_place_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now
     )

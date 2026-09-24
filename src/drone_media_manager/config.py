@@ -5,7 +5,14 @@ from __future__ import annotations
 import ipaddress
 from pathlib import Path
 
-from pydantic import AnyHttpUrl, Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    AnyHttpUrl,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +34,10 @@ class ServerSettings(_BaseSettings):
     port: int = 8000
     allow_insecure_lan: bool = False
     worker_bootstrap_token: SecretStr
+    google_maps_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_MAPS_API_KEY", "google_maps_api_key"),
+    )
     tls_certfile: Path | None = None
     tls_keyfile: Path | None = None
     synced_roots: tuple[Path, ...] = ()

@@ -74,7 +74,10 @@ def test_existing_branch_head_upgrades_without_losing_data(
         assert {"location_groups", "grouping_suggestions", "telemetry_tracks"} <= tables
         assert database.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchall() == [("0006_merge_2d_3a",)]
+        ).fetchall() == [("0007_location_names",)]
+        assert "provider_place_id" in {
+            row[1] for row in database.execute("PRAGMA table_info(location_groups)")
+        }
         if starting_revision == "0005_gallery_auth":
             assert database.execute("SELECT username FROM users").fetchall() == [
                 ("existing",)
@@ -84,5 +87,5 @@ def test_existing_branch_head_upgrades_without_losing_data(
             ).fetchall() == [("selection-1", "user-1", "asset-1")]
         else:
             assert database.execute(
-                "SELECT name_final FROM location_groups"
-            ).fetchall() == [("Praia",)]
+                "SELECT name_final, provider_place_id FROM location_groups"
+            ).fetchall() == [("Praia", None)]

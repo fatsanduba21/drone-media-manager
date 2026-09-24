@@ -185,6 +185,7 @@ def assign_range(
     end_asset_id: str,
     *,
     name: str | None = None,
+    place_id: str | None = None,
     group_id: str | None = None,
     replace_existing: bool = True,
     actor: str = "human",
@@ -202,7 +203,11 @@ def assign_range(
         if not value or len(value) > 255:
             raise ValueError("invalid_group_name")
         group = LocationGroup(
-            trip_id=trip_id, name_final=value, name_source="HUMAN", name_locked=True
+            trip_id=trip_id,
+            name_final=value,
+            name_source="GOOGLE_PLACES_CONFIRMED" if place_id else "HUMAN",
+            name_locked=True,
+            provider_place_id=place_id,
         )
         session.add(group)
         session.flush()
@@ -220,8 +225,9 @@ def assign_range(
             if not value or len(value) > 255:
                 raise ValueError("invalid_group_name")
             group.name_final = value
-            group.name_source = "HUMAN"
+            group.name_source = "GOOGLE_PLACES_CONFIRMED" if place_id else "HUMAN"
             group.name_locked = True
+            group.provider_place_id = place_id
     for asset in assets[start : end + 1]:
         asset.location_group_id = group.id
     group.updated_at = utc_now()
@@ -237,11 +243,69 @@ def assign_range(
                     "start_asset_id": start_asset_id,
                     "end_asset_id": end_asset_id,
                     "name_final": group.name_final,
-                    "source": "HUMAN",
+                    "source": group.name_source,
                     "locked": True,
                 },
                 sort_keys=True,
             ),
+            correlation_id=str(uuid4()),
+        )
+    )
+    session.flush()
+    return group
+
+
+def range_center(
+    session: Session, trip_id: str, start_asset_id: str, end_asset_id: str
+) -> tuple[float, float] | None:
+    """Use cached SRT centroids from a valid inclusive editorial range."""
+    assets = ordered_assets(session, trip_id)
+    positions = {asset.id: index for index, asset in enumerate(assets)}
+    if start_asset_id not in positions or end_asset_id not in positions:
+        raise ValueError("asset_not_in_trip")
+    start, end = positions[start_asset_id], positions[end_asset_id]
+    if start > end:
+        raise ValueError("reversed_range")
+    asset_ids = [asset.id for asset in assets[start : end + 1]]
+    tracks = session.scalars(
+        select(TelemetryTrack).where(TelemetryTrack.catalog_asset_id.in_(asset_ids))
+    ).all()
+    points = [
+        (track.centroid_lat, track.centroid_lon)
+        for track in tracks
+        if track.centroid_lat is not None and track.centroid_lon is not None
+    ]
+    if not points:
+        return None
+    return (
+        sum(point[0] for point in points) / len(points),
+        sum(point[1] for point in points) / len(points),
+    )
+
+
+def rename_group(
+    session: Session, trip_id: str, group_id: str, name: str, *, actor: str
+) -> LocationGroup:
+    """Keep group members while replacing the final name with a human edit."""
+    group = session.get(LocationGroup, group_id)
+    if group is None or group.trip_id != trip_id:
+        raise ValueError("group_not_in_trip")
+    value = name.strip()
+    if not value or len(value) > 255:
+        raise ValueError("invalid_group_name")
+    group.name_final = value
+    group.name_source = "HUMAN"
+    group.name_locked = True
+    group.provider_place_id = None
+    group.updated_at = utc_now()
+    session.add(
+        AuditEvent(
+            actor=actor,
+            action="location_group.rename",
+            entity_type="location_group",
+            entity_id=group.id,
+            result="accepted",
+            details_json=json.dumps({"name_final": value, "source": "HUMAN"}),
             correlation_id=str(uuid4()),
         )
     )

@@ -149,9 +149,13 @@ def test_settings_factories_read_host_environment(
     monkeypatch.setenv("DMM_WORKER_BOOTSTRAP_TOKEN", TOKEN)
     monkeypatch.setenv("DMM_SERVER_URL", "https://control-plane.example")
     monkeypatch.setenv("DMM_WORKER_NAME", "windows-laptop")
+    monkeypatch.setenv("GOOGLE_MAPS_API_KEY", "places-secret")
 
     server_settings = get_server_settings()
     worker_settings = get_worker_settings()
 
     assert server_settings.database_path == database_path
+    assert server_settings.google_maps_api_key is not None
+    assert server_settings.google_maps_api_key.get_secret_value() == "places-secret"
+    assert "places-secret" not in repr(server_settings)
     assert worker_settings.worker_name == "windows-laptop"

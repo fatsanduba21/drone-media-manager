@@ -93,6 +93,13 @@ def test_remote_editorial_requires_https_login(
     assert client.get("/api/editorial/trips").status_code == 401
     assert client.get(f"/api/editorial/assets/{asset_id}/thumbnail").status_code == 401
     assert client.post(f"/api/editorial/trips/{trip_id}/analyze").status_code == 401
+    assert (
+        client.get(
+            f"/api/editorial/trips/{trip_id}/name-suggestions",
+            params={"start_asset_id": asset_id, "end_asset_id": asset_id},
+        ).status_code
+        == 401
+    )
     login(client)
     assert "Shift + clique" in client.get("/editorial/").text
     assert client.get("/api/editorial/trips").status_code == 200
@@ -149,5 +156,9 @@ def test_remote_editorial_mutations_require_csrf(
     group_url = f"{url}/{created.json()['id']}"
     assert client.put(group_url, json=payload).status_code == 403
     assert client.put(group_url, json=payload, headers=headers).status_code == 200
+    assert (
+        client.patch(f"{group_url}/name", json={"name": "Outra praia"}).status_code
+        == 403
+    )
     page = client.get("/editorial/")
     assert f'name="dmm-csrf-token" content="{csrf}"' in page.text

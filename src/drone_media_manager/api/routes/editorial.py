@@ -1,4 +1,4 @@
-"""Authenticated editorial review routes for Phase 3A."""
+"""Authenticated editorial review and optional place naming routes."""
 
 from __future__ import annotations
 
@@ -24,10 +24,13 @@ from drone_media_manager.config import ServerSettings
 from drone_media_manager.db.models.catalog import AssetFile, CatalogAsset, Derivative
 from drone_media_manager.db.models.ingest import Trip
 from drone_media_manager.grouping.models import GroupingSuggestion, LocationGroup
+from drone_media_manager.grouping.names import GooglePlacesProvider, NameLookup
 from drone_media_manager.grouping.repository import (
     analyze_trip,
     assign_range,
     ordered_assets,
+    range_center,
+    rename_group,
 )
 
 
@@ -35,20 +38,36 @@ class RangeRequest(BaseModel):
     start_asset_id: str
     end_asset_id: str
     name: str | None = Field(default=None, max_length=255)
+    place_id: str | None = Field(default=None, max_length=512)
 
 
 class GroupUpdateRequest(RangeRequest):
     mode: Literal["add", "replace"] = "replace"
 
 
+class GroupNameRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
 def _group_data(group: LocationGroup) -> dict[str, object]:
-    return {"id": group.id, "name": group.name_final, "name_source": group.name_source}
+    return {
+        "id": group.id,
+        "name": group.name_final,
+        "name_source": group.name_source,
+        "place_id": group.provider_place_id,
+    }
 
 
 def editorial_router(
     settings: ServerSettings, sessions: Callable[[], Session]
 ) -> APIRouter:
     router = APIRouter()
+    api_key = settings.google_maps_api_key
+    lookup = NameLookup(
+        GooglePlacesProvider(api_key.get_secret_value())
+        if api_key is not None and api_key.get_secret_value().strip()
+        else None
+    )
 
     def admin(request: Request, *, write: bool = False) -> BrowserIdentity:
         if write:
@@ -206,6 +225,32 @@ def editorial_router(
             suggestions = analyze_trip(session, settings, trip_id)
             return {"suggestion_count": len(suggestions)}
 
+    @router.get("/api/editorial/trips/{trip_id}/name-suggestions")
+    def name_suggestions(
+        trip_id: str,
+        request: Request,
+        start_asset_id: str,
+        end_asset_id: str,
+    ) -> dict[str, object]:
+        admin(request)
+        with sessions() as session:
+            if session.get(Trip, trip_id) is None:
+                raise HTTPException(404, detail={"code": "trip_not_found"})
+            try:
+                center = range_center(session, trip_id, start_asset_id, end_asset_id)
+            except ValueError as error:
+                raise HTTPException(422, detail={"code": str(error)}) from error
+        if center is None or lookup.provider is None:
+            return {"candidates": [], "source": "manual"}
+        candidates = lookup.suggest_names(*center, 500)
+        return {
+            "candidates": [
+                {"name": candidate.name, "place_id": candidate.place_id}
+                for candidate in candidates
+            ],
+            "source": "google_places" if candidates else "manual",
+        }
+
     @router.post("/api/editorial/trips/{trip_id}/groups", status_code=201)
     def create_group(
         trip_id: str, payload: RangeRequest, request: Request
@@ -221,6 +266,7 @@ def editorial_router(
                     payload.start_asset_id,
                     payload.end_asset_id,
                     name=payload.name,
+                    place_id=payload.place_id,
                     actor=identity.user_id,
                 )
             except ValueError as error:
@@ -240,9 +286,24 @@ def editorial_router(
                     payload.start_asset_id,
                     payload.end_asset_id,
                     name=payload.name,
+                    place_id=payload.place_id,
                     group_id=group_id,
                     replace_existing=payload.mode == "replace",
                     actor=identity.user_id,
+                )
+            except ValueError as error:
+                raise HTTPException(422, detail={"code": str(error)}) from error
+            return _group_data(group)
+
+    @router.patch("/api/editorial/trips/{trip_id}/groups/{group_id}/name")
+    def edit_group_name(
+        trip_id: str, group_id: str, payload: GroupNameRequest, request: Request
+    ) -> dict[str, object]:
+        identity = admin(request, write=True)
+        with sessions() as session, session.begin():
+            try:
+                group = rename_group(
+                    session, trip_id, group_id, payload.name, actor=identity.user_id
                 )
             except ValueError as error:
                 raise HTTPException(422, detail={"code": str(error)}) from error
