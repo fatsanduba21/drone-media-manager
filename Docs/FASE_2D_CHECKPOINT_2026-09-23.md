@@ -1,5 +1,8 @@
 # Checkpoint da Fase 2D — seleção persistente e originais separados
 
+> Estado histórico da 2D. A 2E foi posteriormente marcada **ACCEPTED** no
+> [checkpoint de 24/09/2026](FASE_2E_CHECKPOINT_2026-09-24.md).
+
 **Data:** 23/09/2026
 **Branch:** codex/phase-2d-selection-download
 **Base:** origin/main em 3aaeafc12e57a646dc3bb50c24d9dd8ce57a70f9

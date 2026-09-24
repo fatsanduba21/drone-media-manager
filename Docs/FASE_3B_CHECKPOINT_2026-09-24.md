@@ -4,7 +4,7 @@
 
 **Base:** `main` em `fb3258b`
 
-**Estado:** concluída para uso e liberada para avançar à preparação da 3C.
+**Estado:** implementada e liberada para uso; aceite funcional completo antes da 3C ainda pendente.
 
 ## Aceite
 
@@ -13,6 +13,24 @@
 - Antes da publicação de `fb3258b`, a suíte registrou 296 testes aprovados e 3 ignorados, com Ruff e mypy aprovados. O teste real no Mac comprovou a consulta de candidatos; a persistência após reinício do serviço não foi observada nessa sessão.
 
 O procedimento está em [operations/location-names.md](operations/location-names.md). A melhoria da sequência de uso na interface fica para uma revisão futura, conforme decisão da usuária.
+
+## Gate de aceite ainda aberto
+
+O teste real acima comprovou a consulta de candidatos, mas não documenta
+persistência após reinício nem a matriz completa do
+[plano pré-3C](PLANO_SANEAMENTO_PRE_FASE_3C.md): viagem com múltiplos assets,
+grupos vazios e movimentação entre grupos (`add`/`replace`), SRTs reais dos
+drones usados, grupo sem GPS, indisponibilidade do Places e ausência de chave,
+nomes com caracteres portugueses e ausência de alteração dos originais.
+Executar essa matriz no Mac/OMV e registrar evidência antes de mudar o estado
+para **PHASE 3B — ACCEPTED**.
+
+Revisão M11 no código: `assign_range` cobre `add` (preserva membros) e
+`replace` (remove membros fora do intervalo), inclusive ao mover assets entre
+grupos; os testes de persistência cobrem esses casos. Um grupo pode ficar
+vazio após a movimentação e continua listado, sem ação de exclusão na API ou
+na interface. A decisão sobre excluir grupos vazios deve ser tomada no aceite
+real antes de 3C consumir os grupos; nenhuma exclusão automática foi presumida.
 
 ## Preparação da Fase 3C
 

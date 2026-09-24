@@ -1,5 +1,8 @@
 # Fase 1 — ingestão segura distribuída
 
+> **LEGACY/EXPERIMENTAL.** Este procedimento descreve o worker distribuído;
+> para viagens novas, use [dmm-organize](windows-organize.md).
+
 A origem é sempre somente leitura. O worker Windows enumera MP4/SRT, envia um
 snapshot relativo autenticado ao Mac e só copia depois da confirmação humana.
 O Mac mantém o SQLite local; o worker nunca abre o banco.

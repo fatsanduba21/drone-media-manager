@@ -1,5 +1,9 @@
 # Testing and Phase 0 checkpoint
 
+> The distributed worker checkpoint below is **LEGACY/EXPERIMENTAL**. The
+> production Windows → OMV → Mac contract is documented in
+> [architecture/STORAGE_CONTRACTS.md](architecture/STORAGE_CONTRACTS.md).
+
 The test suite uses temporary SQLite databases, FastAPI's in-process client,
 fake HTTP transports, and fake credential stores. It never requires a real SD
 card, NAS/OMV server, keyring, or ffmpeg installation.

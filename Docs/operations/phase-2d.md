@@ -1,6 +1,6 @@
 # Fase 2D no Mac: login, seleção e downloads separados
 
-A branch codex/phase-2d-selection-download adiciona a migration 0005_gallery_auth. O lote entrega arquivos ORIGINAL separados, sem ZIP. O Chrome pode pedir permissão para downloads múltiplos; links individuais permanecem disponíveis para Chrome e Safari.
+A migration 0005_gallery_auth já faz parte do histórico do projeto. O lote entrega arquivos ORIGINAL separados, sem ZIP. O Chrome pode pedir permissão para downloads múltiplos; links individuais permanecem disponíveis para Chrome e Safari.
 
 ## Antes de usar credenciais: HTTPS
 
@@ -15,11 +15,10 @@ No Mac, confirme o SSD e OMV montados. Inspecione git status --short e preserve 
     cd /Volumes/SSDMacbook/desenvolvimento/drone-media-manager
     git status --short
     git fetch origin
-    git switch codex/phase-2d-selection-download
-    git pull --ff-only origin codex/phase-2d-selection-download
+    git pull --ff-only
     uv sync
 
-Resolva um checkout sujo antes de trocar de branch. A base da branch é origin/main 3aaeafc.
+Resolva um checkout sujo antes de atualizar a versão de produção.
 
 ## Backup verificado antes da migration
 

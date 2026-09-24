@@ -1,5 +1,8 @@
 # Phase 2C catalog gallery on the Mac
 
+> Historical 2C procedure. For the current HTTPS and login flow, use
+> [phase-2d.md](phase-2d.md). The HTTP commands below no longer work.
+
 Phase 2C adds read-only catalog endpoints and a browser gallery to the
 existing FastAPI server. It uses the existing 0004_derivatives schema and the
 14 imported assets. It needs no SQLite migration, manifest import, or

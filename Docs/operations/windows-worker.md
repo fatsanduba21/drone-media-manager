@@ -1,5 +1,8 @@
 # Windows worker runbook
 
+> **LEGACY/EXPERIMENTAL.** For new trips, use
+> [dmm-organize](windows-organize.md).
+
 The Windows worker is a client of the Mac control plane. In Phase 0 it proves
 pairing, liveness, and synthetic job leasing. It does not read an SD card,
 copy media, invoke ffmpeg, delete files, or format a card.

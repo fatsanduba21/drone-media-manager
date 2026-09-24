@@ -1,9 +1,9 @@
 # Mac server runbook
 
-The Mac is the control-plane host. It owns the local SQLite database and
-serves the authenticated API used by the Windows worker. This runbook covers
-the Phase 0 foundation and Phase 2A catalog import. It does not copy or
-delete media.
+The Mac owns the local SQLite catalog, derivatives, and authenticated gallery
+and editorial API. Windows `dmm-organize` publishes `MANIFESTO.json` to OMV;
+this runbook covers importing it. It does not copy or delete original media.
+The worker pairing section below is LEGACY/EXPERIMENTAL.
 
 ## Prerequisites
 
@@ -60,6 +60,9 @@ When `DMM_TLS_CERTFILE` is configured, health, gallery, and editorial URLs use
 port returns an empty response; `https://127.0.0.1` may fail hostname validation.
 
 ## Pairing the worker
+
+This is LEGACY/EXPERIMENTAL and is not part of the current Windows → OMV → Mac
+flow. For new trips, use [windows-organize.md](windows-organize.md).
 
 On Windows, set `DMM_WORKER_BOOTSTRAP_TOKEN` only for the pairing command or
 enter it at the hidden prompt. The token is exchanged once for a permanent
@@ -182,7 +185,7 @@ Use the existing installation and mounts. A reboot alone does not require anothe
 
    The expected result is `ok`.
 
-4. Check the existing job with `launchctl print "gui/$(id -u)/com.drone-media-manager.server"` and `curl -fsS http://127.0.0.1:8000/health`. If it has not recovered after both volumes are ready, restart it with `launchctl kickstart -k "gui/$(id -u)/com.drone-media-manager.server"`.
+4. Check the existing job with `launchctl print "gui/$(id -u)/com.drone-media-manager.server"` and `curl -fsS https://NOME_DNS_DO_CERTIFICADO:8000/health`. If it has not recovered after both volumes are ready, restart it with `launchctl kickstart -k "gui/$(id -u)/com.drone-media-manager.server"`.
 5. Recheck all 18 media files from the Mac's OMV mount:
 
    ```bash

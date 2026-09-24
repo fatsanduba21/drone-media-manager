@@ -5,8 +5,7 @@ Use the already imported catalog and mounted OMV share. Originals are read throu
 Mac; set `DMM_DERIVATIVES_ROOT` to a directory outside the OMV and synced roots.
 If unset, the cache is a `derivatives` directory beside the SQLite database.
 
-After updating the Mac checkout to `codex/phase-2b-derivatives`, back up the
-existing database **before** the new migration:
+On the current checkout, back up the existing database before migrating:
 
 ```bash
 cd /Volumes/SSDMacbook/desenvolvimento/drone-media-manager
@@ -40,5 +39,5 @@ the current revision, then check health:
 
 ```bash
 launchctl kickstart -k "gui/$(id -u)/com.drone-media-manager.server"
-curl -fsS http://127.0.0.1:8000/health
+curl -fsS https://NOME_DNS_DO_CERTIFICADO:8000/health
 ```
