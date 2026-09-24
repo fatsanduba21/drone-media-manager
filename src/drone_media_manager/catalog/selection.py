@@ -59,3 +59,32 @@ def set_selected(
             )
         )
     session.commit()
+
+
+def set_selected_many(
+    session: Session, user_id: str, catalog_asset_ids: list[str], selected: bool
+) -> None:
+    if selected:
+        session.execute(
+            sqlite_insert(AssetSelection)
+            .values(
+                [
+                    {
+                        "id": str(uuid4()),
+                        "user_id": user_id,
+                        "catalog_asset_id": asset_id,
+                        "updated_at": utc_now(),
+                    }
+                    for asset_id in catalog_asset_ids
+                ]
+            )
+            .on_conflict_do_nothing(index_elements=["user_id", "catalog_asset_id"])
+        )
+    else:
+        session.execute(
+            delete(AssetSelection).where(
+                AssetSelection.user_id == user_id,
+                AssetSelection.catalog_asset_id.in_(catalog_asset_ids),
+            )
+        )
+    session.commit()

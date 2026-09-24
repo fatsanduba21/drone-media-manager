@@ -154,6 +154,29 @@ if (window.fetch) {
       else alert('Não foi possível salvar a seleção. Tente novamente.');
     } finally { button.disabled = false; }
   });
+  document.addEventListener('click', async function(event) {
+    const clicked = event.target.closest?.('[data-bulk-selection]');
+    if (!clicked || !slug) return;
+    const forms = Array.from(document.querySelectorAll('.grid .selection-form'));
+    const buttons = document.querySelectorAll('[data-bulk-selection]');
+    for (const button of buttons) button.disabled = true;
+    if (message) message.textContent = '';
+    try {
+      const selected = clicked.dataset.bulkSelection === 'true';
+      const response = await fetch('/api/catalog/trips/' + encodeURIComponent(slug) + '/selection', {
+        method: 'PUT', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': forms[0].querySelector('input[name="csrf_token"]').value},
+        body: JSON.stringify({asset_ids: forms.map(form => form.dataset.assetId), selected: selected})
+      });
+      if (!response.ok) throw new Error('selection');
+      const data = await response.json();
+      for (const form of forms) setForm(form, selected);
+      if (count) count.textContent = data.selected_count + (data.selected_count === 1 ? ' selecionado' : ' selecionados');
+      try { await refreshDownloads(); }
+      catch (_) { if (panel) panel.textContent = 'Não foi possível atualizar os downloads. Recarregue a página.'; }
+    } catch (_) {
+      if (message) message.textContent = 'Não foi possível salvar a seleção. Tente novamente.';
+    } finally { for (const button of buttons) button.disabled = false; }
+  });
   document.addEventListener('click', function(event) {
     if (!event.target.closest?.('#download-selected')) return;
     for (const link of document.querySelectorAll('[data-download-url]')) {
@@ -465,6 +488,11 @@ def gallery_router(
             + '<button type="submit">Filtrar</button></form>'
             + f'<div data-trip-slug="{escape(slug, quote=True)}"><div class="selection-bar" data-selection-count>{count} selecionado{"s" if count != 1 else ""}</div>'
             + '<p data-selection-message role="status"></p>'
+            + (
+                '<div class="selection-form"><button type="button" data-bulk-selection="true">Selecionar exibidos</button><button type="button" data-bulk-selection="false">Desmarcar exibidos</button></div>'
+                if shown
+                else ""
+            )
             + download_panel
             + '<div class="section-head"><h2>Galeria</h2>'
             + f'<span class="count">{len(shown)} de {len(all_assets)} assets</span></div>'

@@ -253,6 +253,76 @@ def test_gallery_selection_keeps_post_fallback_and_exposes_progressive_controls(
     assert "X-CSRF-Token" in page.text
 
 
+def test_bulk_selection_is_atomic_idempotent_and_keeps_hidden_assets(
+    auth_app: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, sessions = auth_app
+    assert login(client).status_code == 303
+    ids = [f"{number:064x}" for number in range(1, 101)]
+    foreign_id = "f" * 64
+    with sessions() as session:
+        trip = session.query(Trip).filter_by(slug="viagem").one()
+        other = Trip(name="Outra", slug="outra", nas_rel_path="outra")
+        session.add(other)
+        session.flush()
+        session.add_all(
+            CatalogAsset(
+                asset_id=asset_id,
+                trip_id=trip.id,
+                media_type="PHOTO",
+                classification="FOTOS",
+                verification_status="VERIFIED",
+            )
+            for asset_id in ids
+        )
+        session.add(
+            CatalogAsset(
+                asset_id=foreign_id,
+                trip_id=other.id,
+                media_type="PHOTO",
+                classification="FOTOS",
+                verification_status="VERIFIED",
+            )
+        )
+        session.commit()
+        csrf = session.query(UserSession).one().csrf_token
+    url = "/api/catalog/trips/viagem/selection"
+    headers = {"X-CSRF-Token": csrf}
+    body = {"asset_ids": ids, "selected": True}
+    assert client.put(url, json=body).status_code == 403
+    for _ in range(2):
+        response = client.put(url, json=body, headers=headers)
+        assert response.status_code == 200
+        assert response.json()["selected_count"] == 100
+    for bad in (foreign_id, "e" * 64):
+        response = client.put(
+            url, json={"asset_ids": [ASSET, bad], "selected": True}, headers=headers
+        )
+        assert response.status_code == 404
+        assert client.get(f"/api/catalog/assets/{ASSET}").json()["selected"] is False
+    assert (
+        client.put(
+            url, json={"asset_ids": ids + ids[:1], "selected": True}, headers=headers
+        ).status_code
+        == 422
+    )
+    assert (
+        client.put(
+            url, json={"asset_ids": [], "selected": True}, headers=headers
+        ).status_code
+        == 422
+    )
+    assert (
+        client.put(
+            url, json={"asset_ids": ids[:20], "selected": False}, headers=headers
+        ).json()["selected_count"]
+        == 80
+    )
+    assert client.get(f"/api/catalog/assets/{ids[20]}").json()["selected"] is True
+    page = client.get("/gallery/viagem", params={"media_type": "VIDEO"})
+    assert "data-bulk-selection" in page.text
+
+
 def test_selection_is_private_to_user_and_gallery_form_checks_csrf(
     auth_app: tuple[TestClient, sessionmaker[Session]],
 ) -> None:
