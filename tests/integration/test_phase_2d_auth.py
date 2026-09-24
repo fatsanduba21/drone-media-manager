@@ -240,6 +240,19 @@ def test_selection_persists_across_sessions_and_is_idempotent(
     assert response.json()["selected_count"] == 0
 
 
+def test_gallery_selection_keeps_post_fallback_and_exposes_progressive_controls(
+    auth_app: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = auth_app
+    assert login(client).status_code == 303
+    page = client.get("/gallery/viagem")
+    assert 'method="post"' in page.text
+    assert f'data-asset-id="{ASSET}"' in page.text
+    assert "data-selection-count" in page.text
+    assert "data-download-panel" in page.text
+    assert "X-CSRF-Token" in page.text
+
+
 def test_selection_is_private_to_user_and_gallery_form_checks_csrf(
     auth_app: tuple[TestClient, sessionmaker[Session]],
 ) -> None:

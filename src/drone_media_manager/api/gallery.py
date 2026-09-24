@@ -78,6 +78,93 @@ dt{color:var(--muted);font-size:10px;letter-spacing:.12em;text-transform:upperca
 @media(max-width:550px){header{align-items:start}.edition{display:none}.filters{grid-template-columns:1fr 1fr;padding:14px}.filters button{grid-column:1/-1}.thumb{height:210px}}
 """
 
+_GALLERY_SCRIPT = """<script>
+if (window.fetch) {
+  const message = document.querySelector('[data-selection-message]');
+  const slug = document.querySelector('[data-trip-slug]')?.dataset.tripSlug;
+  const panel = document.querySelector('[data-download-panel]');
+  const count = document.querySelector('[data-selection-count]');
+  function setForm(form, selected) {
+    form.querySelector('input[name="selected"]').value = String(!selected);
+    form.querySelector('button').textContent = selected ? 'Desmarcar' : 'Selecionar';
+    let status = form.querySelector('.selected-status');
+    if (selected && !status) {
+      status = document.createElement('span');
+      status.className = 'selected-status';
+      form.insertBefore(status, form.querySelector('button'));
+    }
+    if (status) {
+      status.textContent = 'Selecionado';
+      if (!selected) status.remove();
+    }
+  }
+  async function refreshDownloads() {
+    if (!panel || !slug) return;
+    const response = await fetch('/api/catalog/trips/' + encodeURIComponent(slug) + '/selected-downloads');
+    panel.replaceChildren();
+    if (response.status === 409) {
+      panel.textContent = 'Selecione assets para baixar os originais.';
+      return;
+    }
+    if (!response.ok) throw new Error('downloads');
+    const data = await response.json();
+    const heading = document.createElement('strong');
+    heading.textContent = data.count + ' originais';
+    panel.appendChild(heading);
+    const button = document.createElement('button');
+    button.type = 'button'; button.id = 'download-selected';
+    button.textContent = 'Baixar selecionados';
+    panel.appendChild(button);
+    const hint = document.createElement('p');
+    hint.textContent = 'O Chrome pode pedir permissão para baixar vários arquivos. Se algum for bloqueado, use os links abaixo.';
+    panel.appendChild(hint);
+    const list = document.createElement('ul');
+    list.className = 'download-list';
+    for (const file of data.files) {
+      const item = document.createElement('li');
+      const link = document.createElement('a');
+      link.className = 'download-item'; link.href = file.url;
+      link.dataset.downloadUrl = file.url;
+      link.textContent = 'Baixar ' + file.filename;
+      item.appendChild(link); list.appendChild(item);
+    }
+    panel.appendChild(list);
+  }
+  document.addEventListener('submit', async function(event) {
+    const form = event.target.closest?.('.selection-form');
+    if (!form) return;
+    event.preventDefault();
+    const button = form.querySelector('button');
+    const selected = form.querySelector('input[name="selected"]').value === 'true';
+    button.disabled = true;
+    if (message) message.textContent = '';
+    try {
+      const response = await fetch('/api/catalog/assets/' + encodeURIComponent(form.dataset.assetId) + '/selection', {
+        method: 'PUT', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': form.querySelector('input[name="csrf_token"]').value},
+        body: JSON.stringify({selected: selected})
+      });
+      if (!response.ok) throw new Error('selection');
+      const data = await response.json();
+      setForm(form, selected);
+      if (count) count.textContent = data.selected_count + (data.selected_count === 1 ? ' selecionado' : ' selecionados');
+      try { await refreshDownloads(); }
+      catch (_) { if (panel) panel.textContent = 'Não foi possível atualizar os downloads. Recarregue a página.'; }
+    } catch (_) {
+      if (message) message.textContent = 'Não foi possível salvar a seleção. Tente novamente.';
+      else alert('Não foi possível salvar a seleção. Tente novamente.');
+    } finally { button.disabled = false; }
+  });
+  document.addEventListener('click', function(event) {
+    if (!event.target.closest?.('#download-selected')) return;
+    for (const link of document.querySelectorAll('[data-download-url]')) {
+      const anchor = document.createElement('a');
+      anchor.href = link.dataset.downloadUrl; anchor.download = '';
+      document.body.appendChild(anchor); anchor.click(); anchor.remove();
+    }
+  });
+}
+</script>"""
+
 
 def _page(title: str, content: str, csrf_token: str) -> HTMLResponse:
     logout_form = (
@@ -137,7 +224,7 @@ def _selection_form(
 ) -> str:
     next_value = '<input type="hidden" name="next" value="detail">' if detail else ""
     return (
-        f'<form class="selection-form" method="post" action="/gallery/{quote(slug, safe="")}/assets/{quote(asset_id, safe="")}/selection">'
+        f'<form class="selection-form" data-asset-id="{escape(asset_id, quote=True)}" method="post" action="/gallery/{quote(slug, safe="")}/assets/{quote(asset_id, safe="")}/selection">'
         f'<input type="hidden" name="csrf_token" value="{escape(csrf_token, quote=True)}">'
         f'<input type="hidden" name="selected" value="{"false" if selected else "true"}">'
         + next_value
@@ -177,8 +264,8 @@ def _batch_panel(
     except HTTPException as error:
         code = error.detail.get("code") if isinstance(error.detail, dict) else None
         if code == "selection_empty":
-            return '<div class="download-panel">Selecione assets para baixar os originais.</div>'
-        return '<div class="download-panel">Original indisponível. Revise a seleção antes de baixar.</div>'
+            return '<div class="download-panel" data-download-panel>Selecione assets para baixar os originais.</div>'
+        return '<div class="download-panel" data-download-panel>Original indisponível. Revise a seleção antes de baixar.</div>'
     total = sum(original.size_bytes for _, original in originals)
     links = "".join(
         '<li><a class="download-item" data-download-url="'
@@ -191,21 +278,12 @@ def _batch_panel(
         for asset, original in originals
     )
     return (
-        '<div class="download-panel">'
+        '<div class="download-panel" data-download-panel>'
         f"<strong>{len(originals)} originais · {_size_label(total)}</strong>"
         '<button id="download-selected" type="button">Baixar selecionados</button>'
         "<p>O Chrome pode pedir permissão para baixar vários arquivos. Confira os downloads; se algum for bloqueado, use os links abaixo.</p>"
         f'<ul class="download-list">{links}</ul>'
         '<p id="download-status" role="status"></p></div>'
-        "<script>"
-        'document.getElementById("download-selected").addEventListener("click",function(){'
-        'const links=document.querySelectorAll("[data-download-url]");'
-        'for(const link of links){const a=document.createElement("a");'
-        'a.href=link.getAttribute("data-download-url");a.download="";'
-        "document.body.appendChild(a);a.click();a.remove();}"
-        'document.getElementById("download-status").textContent='
-        '"Downloads solicitados. Confirme no Chrome; os links individuais ficam disponíveis acima.";'
-        "});</script>"
     )
 
 
@@ -385,7 +463,8 @@ def gallery_router(
             f'<form class="filters" method="get" action="/gallery/{quote(slug, safe="")}">'
             + fields
             + '<button type="submit">Filtrar</button></form>'
-            + f'<div class="selection-bar">{count} selecionado{"s" if count != 1 else ""}</div>'
+            + f'<div data-trip-slug="{escape(slug, quote=True)}"><div class="selection-bar" data-selection-count>{count} selecionado{"s" if count != 1 else ""}</div>'
+            + '<p data-selection-message role="status"></p>'
             + download_panel
             + '<div class="section-head"><h2>Galeria</h2>'
             + f'<span class="count">{len(shown)} de {len(all_assets)} assets</span></div>'
@@ -394,6 +473,8 @@ def gallery_router(
                 if cards
                 else '<div class="empty">Nenhum asset corresponde aos filtros.</div>'
             )
+            + "</div>"
+            + _GALLERY_SCRIPT
         )
         return _page(trip.name, content, identity.csrf_token)
 
@@ -455,6 +536,7 @@ def gallery_router(
             + download_link
             + f'<a class="back" href="/gallery/{quote(slug, safe="")}">← Voltar à galeria</a>'
             + "</aside></div>"
+            + _GALLERY_SCRIPT
         )
         return _page(str(payload["poi"] or "Detalhe"), content, identity.csrf_token)
 
