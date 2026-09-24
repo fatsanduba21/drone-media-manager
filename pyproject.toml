@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "drone-media-manager"
 version = "0.1.0"
-description = "Distributed control plane and worker for safe drone media management."
+description = "Windows-to-OMV media organizer and Mac editorial catalog."
 requires-python = ">=3.12,<3.14"
 dependencies = [
     "fastapi",
@@ -24,6 +24,7 @@ dmm-worker = "drone_media_manager.cli.worker:main"
 dmm-server = "drone_media_manager.cli.server:main"
 dmm-catalog = "drone_media_manager.cli.catalog:main"
 dmm-derivatives = "drone_media_manager.cli.derivatives:main"
+dmm-organize = "drone_media_manager.cli.organize:main"
 
 [dependency-groups]
 dev = [
