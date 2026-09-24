@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,15 +18,17 @@ from sqlalchemy.engine import Engine
 
 from drone_media_manager.api.app import create_app
 from drone_media_manager.config import ServerSettings, get_server_settings
+from drone_media_manager.db.backup import BackupError, backup_sqlite
 from drone_media_manager.db.session import create_engine_from_settings, session_factory
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dmm-server")
-    parser.add_argument("command", choices=("run", "migrate", "ingest"))
+    parser.add_argument("command", choices=("run", "migrate", "ingest", "backup"))
     parser.add_argument("ingest_command", nargs="?", choices=("confirm", "status"))
     parser.add_argument("ingest_id", nargs="?")
     parser.add_argument("--trip")
+    parser.add_argument("--output", type=Path)
     parser.add_argument("--revision", type=int, default=2)
     return parser
 
@@ -103,8 +106,19 @@ def main(
         [ServerSettings], AdminIngestClient
     ] = AdminIngestClient,
 ) -> int:
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if args.output is not None and args.command != "backup":
+        parser.error("--output is only valid for backup")
     settings = settings_loader()
+    if args.command == "backup":
+        try:
+            report = backup_sqlite(settings, args.output)
+        except BackupError as error:
+            print(f"backup failed: {error}", file=sys.stderr)
+            return 4
+        print(f"backup={report.path} bytes={report.size_bytes} sha256={report.sha256}")
+        return 0
     if args.command == "ingest":
         client = admin_client_factory(settings)
         if args.ingest_command == "confirm" and args.ingest_id and args.trip:

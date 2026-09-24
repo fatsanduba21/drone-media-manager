@@ -65,14 +65,22 @@ shell history or a command-line argument.
 
 ## Backup and rollback
 
-Stop the server before taking a simple file backup. Keep the database and its
-SQLite sidecars together, or use SQLite's online backup facility:
+From the repository root, use the online SQLite backup command before a
+migration or whenever a snapshot is needed. The server may remain running:
 
 ```bash
-sqlite3 "$DMM_DATABASE_PATH" ".backup '$DMM_DATABASE_PATH.backup'"
+uv run dmm-server backup
+# Optional destination (must not already exist):
+mkdir -p "$HOME/Backups"
+uv run dmm-server backup --output "$HOME/Backups/dmm-before-upgrade.sqlite3"
 ```
 
-Keep a copy of the repository and the previous database backup before
+The default file is created next to `DMM_DATABASE_PATH` with a unique timestamp
+and suffix. The command reads committed WAL data, verifies the copy with
+`PRAGMA integrity_check`, and prints its path, byte count, and SHA-256 hash.
+It exits with code 4 on failure and never replaces an existing destination.
+Keep the backup on local storage; copy the completed file to other storage if
+needed. Keep a copy of the repository and the previous database backup before
 migrations. To roll back an application release, stop the service, restore a
 known-good database backup if the schema changed, check out the previous
 revision, and run the matching `uv sync`; do not delete media or logs as part
