@@ -55,6 +55,9 @@ launchctl bootout gui/"$(id -u)"/com.drone-media-manager.server
 
 The plist's `KeepAlive` setting is useful for an always-on server, but it is
 not a substitute for checking the logs and database revision after restart.
+When `DMM_TLS_CERTFILE` is configured, health, gallery, and editorial URLs use
+`https://` and the DNS name covered by that certificate. Plain HTTP on the TLS
+port returns an empty response; `https://127.0.0.1` may fail hostname validation.
 
 ## Pairing the worker
 

@@ -1,5 +1,6 @@
 """The 3A review API serves thumbnails and accepts human range corrections."""
 
+import re
 from pathlib import Path
 
 from alembic import command
@@ -7,8 +8,10 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from drone_media_manager.api.app import create_app
+from drone_media_manager.auth.passwords import hash_password
 from drone_media_manager.cli.server import alembic_config
 from drone_media_manager.config import ServerSettings
+from drone_media_manager.db.models.auth import User, UserSession
 from drone_media_manager.db.models.catalog import AssetFile, CatalogAsset, Derivative
 from drone_media_manager.db.models.ingest import Trip
 from drone_media_manager.db.session import create_engine_from_settings, session_factory
@@ -26,7 +29,14 @@ def test_legacy_gallery_and_range_update(tmp_path: Path) -> None:
     sessions = session_factory(engine)
     with sessions() as session:
         trip = Trip(name="Legado", slug="legado", nas_rel_path="legado")
-        session.add(trip)
+        session.add_all(
+            [
+                trip,
+                User(
+                    username="editor", password_hash=hash_password("valid password 123")
+                ),
+            ]
+        )
         session.flush()
         for n in (1, 2, 3):
             asset = CatalogAsset(
@@ -63,7 +73,26 @@ def test_legacy_gallery_and_range_update(tmp_path: Path) -> None:
             )
         session.commit()
         trip_id = trip.id
-    client = TestClient(create_app(settings, sessions))
+    client = TestClient(create_app(settings, sessions), base_url="https://testserver")
+    login_page = client.get("/login")
+    csrf_login = re.search(r'name="csrf_token" value="([^"]+)"', login_page.text)
+    assert csrf_login is not None
+    assert (
+        client.post(
+            "/login",
+            data={
+                "username": "editor",
+                "password": "valid password 123",
+                "csrf_token": csrf_login[1],
+            },
+            headers={"Origin": "https://testserver"},
+            follow_redirects=False,
+        ).status_code
+        == 303
+    )
+    with sessions() as session:
+        csrf = session.query(UserSession).one().csrf_token
+    write_headers = {"X-CSRF-Token": csrf, "Origin": "https://testserver"}
     page = client.get("/editorial/")
     assert page.status_code == 200
     assert "Shift + clique" in page.text
@@ -90,12 +119,14 @@ def test_legacy_gallery_and_range_update(tmp_path: Path) -> None:
             "end_asset_id": assets[1]["id"],
             "name": "Casa",
         },
+        headers=write_headers,
     )
     assert created.status_code == 201
     group_id = created.json()["id"]
     corrected = client.put(
         f"/api/editorial/trips/{trip_id}/groups/{group_id}",
         json={"start_asset_id": assets[1]["id"], "end_asset_id": assets[2]["id"]},
+        headers=write_headers,
     )
     assert corrected.status_code == 200
     assert [

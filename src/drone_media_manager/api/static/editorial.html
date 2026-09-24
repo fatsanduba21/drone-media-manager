@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="dmm-csrf-token" content="__DMM_CSRF_TOKEN__">
 <title>Triagem editorial · Drone Media Manager</title>
 <style>
 :root{color-scheme:dark;--ink:#e8e4d7;--muted:#9b9b95;--bg:#141716;--panel:#202523;--line:#39413c;--accent:#d5eb75;--warm:#d9b89a}
@@ -80,10 +81,14 @@ h2{font:normal 25px/1.2 Georgia,serif;margin:0}.hint{color:var(--muted);font-siz
 </main>
 <script>
 const $ = id => document.getElementById(id);
+const csrfToken = document.querySelector('meta[name="dmm-csrf-token"]').content;
 let state = null, selected = [], anchor = null;
 function notice(message, error=false){ $('status').textContent=message; $('status').classList.toggle('error',error); }
 async function api(url, options={}){
-  const response=await fetch(url,{...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});
+  const method=(options.method||'GET').toUpperCase();
+  const headers={'Content-Type':'application/json',...(options.headers||{})};
+  if(method!=='GET'&&method!=='HEAD')headers['X-CSRF-Token']=csrfToken;
+  const response=await fetch(url,{...options,headers});
   if(!response.ok){let data={};try{data=await response.json()}catch{};throw new Error(data.error?.code||'Falha na operação');}
   return response.json();
 }

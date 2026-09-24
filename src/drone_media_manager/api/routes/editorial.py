@@ -1,18 +1,23 @@
-"""Local editorial review routes for Phase 3A."""
+"""Authenticated editorial review routes for Phase 3A."""
 
 from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from html import escape
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from drone_media_manager.api.routes.ingests import _require_localhost_admin
+from drone_media_manager.api.auth import (
+    BrowserIdentity,
+    require_browser_identity,
+    require_csrf,
+)
 from drone_media_manager.catalog.importer import resolve_omv_path
 from drone_media_manager.config import ServerSettings
 from drone_media_manager.db.models.catalog import AssetFile, CatalogAsset, Derivative
@@ -40,18 +45,23 @@ def editorial_router(
 ) -> APIRouter:
     router = APIRouter()
 
-    def admin() -> None:
-        _require_localhost_admin(settings)
+    def admin(request: Request, *, write: bool = False) -> BrowserIdentity:
+        if write:
+            return require_csrf(request, request.headers.get("x-csrf-token"))
+        return require_browser_identity(request)
 
     @router.get("/editorial/", response_class=HTMLResponse)
-    def gallery() -> HTMLResponse:
-        admin()
+    def gallery(request: Request) -> HTMLResponse:
+        identity = admin(request)
         html = Path(__file__).resolve().parents[1] / "static" / "editorial.html"
-        return HTMLResponse(html.read_text(encoding="utf-8"))
+        page = html.read_text(encoding="utf-8").replace(
+            "__DMM_CSRF_TOKEN__", escape(identity.csrf_token, quote=True)
+        )
+        return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
     @router.get("/api/editorial/trips")
-    def trips() -> list[dict[str, object]]:
-        admin()
+    def trips(request: Request) -> list[dict[str, object]]:
+        admin(request)
         with sessions() as session:
             rows = session.execute(
                 select(Trip.id, Trip.name, func.count(CatalogAsset.id))
@@ -65,8 +75,8 @@ def editorial_router(
             ]
 
     @router.get("/api/editorial/trips/{trip_id}")
-    def trip_state(trip_id: str) -> dict[str, object]:
-        admin()
+    def trip_state(trip_id: str, request: Request) -> dict[str, object]:
+        admin(request)
         with sessions() as session:
             trip = session.get(Trip, trip_id)
             if trip is None:
@@ -147,8 +157,8 @@ def editorial_router(
             }
 
     @router.get("/api/editorial/assets/{asset_id}/thumbnail")
-    def thumbnail(asset_id: str) -> FileResponse:
-        admin()
+    def thumbnail(asset_id: str, request: Request) -> FileResponse:
+        admin(request)
         with sessions() as session:
             asset = session.get(CatalogAsset, asset_id)
             original = session.scalar(
@@ -183,8 +193,8 @@ def editorial_router(
             return FileResponse(path, media_type="image/jpeg")
 
     @router.post("/api/editorial/trips/{trip_id}/analyze")
-    def analyze(trip_id: str) -> dict[str, int]:
-        admin()
+    def analyze(trip_id: str, request: Request) -> dict[str, int]:
+        admin(request, write=True)
         with sessions() as session, session.begin():
             if session.get(Trip, trip_id) is None:
                 raise HTTPException(404, detail={"code": "trip_not_found"})
@@ -192,8 +202,10 @@ def editorial_router(
             return {"suggestion_count": len(suggestions)}
 
     @router.post("/api/editorial/trips/{trip_id}/groups", status_code=201)
-    def create_group(trip_id: str, request: RangeRequest) -> dict[str, object]:
-        admin()
+    def create_group(
+        trip_id: str, payload: RangeRequest, request: Request
+    ) -> dict[str, object]:
+        identity = admin(request, write=True)
         with sessions() as session, session.begin():
             if session.get(Trip, trip_id) is None:
                 raise HTTPException(404, detail={"code": "trip_not_found"})
@@ -201,10 +213,10 @@ def editorial_router(
                 group = assign_range(
                     session,
                     trip_id,
-                    request.start_asset_id,
-                    request.end_asset_id,
-                    name=request.name,
-                    actor="local_admin",
+                    payload.start_asset_id,
+                    payload.end_asset_id,
+                    name=payload.name,
+                    actor=identity.user_id,
                 )
             except ValueError as error:
                 raise HTTPException(422, detail={"code": str(error)}) from error
@@ -212,19 +224,19 @@ def editorial_router(
 
     @router.put("/api/editorial/trips/{trip_id}/groups/{group_id}")
     def update_group(
-        trip_id: str, group_id: str, request: RangeRequest
+        trip_id: str, group_id: str, payload: RangeRequest, request: Request
     ) -> dict[str, object]:
-        admin()
+        identity = admin(request, write=True)
         with sessions() as session, session.begin():
             try:
                 group = assign_range(
                     session,
                     trip_id,
-                    request.start_asset_id,
-                    request.end_asset_id,
-                    name=request.name,
+                    payload.start_asset_id,
+                    payload.end_asset_id,
+                    name=payload.name,
                     group_id=group_id,
-                    actor="local_admin",
+                    actor=identity.user_id,
                 )
             except ValueError as error:
                 raise HTTPException(422, detail={"code": str(error)}) from error

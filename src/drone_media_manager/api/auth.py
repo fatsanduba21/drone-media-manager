@@ -252,16 +252,20 @@ async def browser_gate(
     call_next: Callable[[Request], Awaitable[Response]],
     session_factory: Callable[[], Session],
 ) -> Response:
-    """Protect all gallery and catalog paths before route or static file handling."""
+    """Protect gallery, catalog and editorial paths before route handling."""
     path = request.url.path
-    if path == "/gallery" or path.startswith(("/gallery/", "/api/catalog/")):
+    browser_page = path in {"/gallery", "/editorial"} or path.startswith(
+        ("/gallery/", "/editorial/")
+    )
+    protected_api = path.startswith(("/api/catalog/", "/api/editorial/"))
+    if browser_page or protected_api:
         if request.url.scheme != "https":
             return JSONResponse(
                 status_code=426, content={"error": {"code": "https_required"}}
             )
         identity = browser_identity(request, session_factory)
         if identity is None:
-            if path.startswith("/gallery"):
+            if browser_page:
                 return RedirectResponse("/login", status_code=303)
             return JSONResponse(
                 status_code=401, content={"error": {"code": "login_required"}}
