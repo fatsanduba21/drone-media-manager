@@ -37,8 +37,11 @@ Resultados informados pela usuária nesta sessão:
 - Derivados: 19 gerados, zero falhas; repetição com 19 reutilizados e zero falhas.
 - Galeria: listagem, mídia, seleção e download passaram no teste informado.
 - Editorial: sugestões e alteração de alguns nomes funcionaram no teste
-  informado. Essas edições ocorreram antes do backup; fazer backup agora para
-  preservar o estado atual. Ainda faltam evidências dos demais itens da matriz
+  informado. Um backup do SQLite foi concluído antes da migração
+  `0008_capture_time`. A nova importação reconheceu 11 assets e 18 arquivos
+  disponíveis, sem criar registros ou apontar conflitos. Após a atualização
+  no Mac, a usuária confirmou que a ordenação por horário de captura e o filtro
+  do editorial funcionaram. Ainda faltam evidências dos demais itens da matriz
   3B, inclusive persistência após reinício.
 
 Achados de uso real a priorizar separadamente do aceite funcional:
@@ -46,17 +49,13 @@ Achados de uso real a priorizar separadamente do aceite funcional:
 - O organizador usa `desconhecido` como valor padrão de movimento e pessoas e
   incorpora ambos ao nome físico. O nome de grupo confirmado vive no catálogo;
   renomear os originais já importados exige revisar o contrato Windows → OMV.
-- A versão testada no Mac ordena a galeria pela data sem hora e o editorial
-  pelo nome natural do original. A branch de saneamento passou a importar
-  `video.creation_time` e a ordenar ambas as listas por esse horário, com
-  fallback determinístico. Requer backup, migração, nova importação do mesmo
-  manifesto e validação real no Mac.
-- A versão testada no Mac não filtra assets já agrupados. A branch de
-  saneamento incluiu **Sem grupo/Com grupo** no editorial; falta validar no Mac.
-  Selecionar na galeria recarrega a página. Exibir grupos editoriais na galeria,
-  alterar nomes apenas na cópia
-  baixada e oferecer seleção em massa são melhorias futuras mencionadas pela
-  usuária, ainda sem implementação neste checkpoint.
+- A ordenação por `video.creation_time`, com fallback determinístico, e o filtro
+  **Sem grupo/Com grupo** foram implementados na branch de saneamento e
+  validados no Mac pela usuária.
+- Selecionar na galeria ainda recarrega a página. Exibir grupos editoriais na
+  galeria, alterar nomes apenas na cópia baixada e oferecer seleção em massa
+  continuam como melhorias futuras. O plano está em
+  [`superpowers/plans/2026-09-24-deferred-editorial-improvements.md`](superpowers/plans/2026-09-24-deferred-editorial-improvements.md).
 
 Revisão M11 no código: `assign_range` cobre `add` (preserva membros) e
 `replace` (remove membros fora do intervalo), inclusive ao mover assets entre
