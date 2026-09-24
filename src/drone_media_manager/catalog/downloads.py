@@ -61,6 +61,18 @@ def _editorial_name(session: Session, asset: CatalogAsset, original: AssetFile) 
     if asset.location_group_id:
         group = session.get(LocationGroup, asset.location_group_id)
         if group is not None and group.trip_id == asset.trip_id:
+            same_prefix = session.scalars(
+                select(CatalogAsset.asset_id).where(
+                    CatalogAsset.trip_id == asset.trip_id,
+                    CatalogAsset.asset_id.startswith(asset.asset_id[:8]),
+                )
+            ).all()
+            id_length = 8
+            while any(
+                other != asset.asset_id and other.startswith(asset.asset_id[:id_length])
+                for other in same_prefix
+            ):
+                id_length += 4
             formats = {
                 "YOUTUBE_16X9": "16x9",
                 "INSTAGRAM_9X16": "9x16",
@@ -81,7 +93,7 @@ def _editorial_name(session: Session, asset: CatalogAsset, original: AssetFile) 
                     else []
                 ),
                 formats[asset.classification],
-                asset.asset_id[:8],
+                asset.asset_id[:id_length],
             ]
             extension = PurePosixPath(original.rel_path).suffix.lower()
             return safe_filename(f"{'_'.join(parts)}{extension}", asset.asset_id)

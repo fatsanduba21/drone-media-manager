@@ -292,9 +292,17 @@ def build_plan(
         try:
             existing = json.loads(manifest_path.read_text(encoding="utf-8"))
             first = existing["assets"][0]
+            first_video = next(
+                (
+                    asset
+                    for asset in existing["assets"]
+                    if asset.get("video") is not None
+                ),
+                first,
+            )
             poi = first["location"]["poi_final"]
-            movement = movement or first["editorial"].get("movement")
-            people = people or first["editorial"].get("people")
+            movement = movement or first_video["editorial"].get("movement")
+            people = people or first_video["editorial"].get("people")
         except (OSError, KeyError, IndexError, TypeError, ValueError):
             pass
     poi_slug = _slug(poi) if poi else "a-classificar"
@@ -610,7 +618,8 @@ def apply_plan(plan: OrganizePlan) -> dict[str, Any]:
             asset_record["output"]["verification_status"] = "VERIFIED"
             merged[asset_record["asset_id"]] = asset_record
         if (
-            old_assets
+            plan.naming_scheme is None
+            and old_assets
             and counts["CREATED"] == 0
             and {item["asset_id"] for item in old_assets}
             == {item["asset_id"] for item in plan.assets}

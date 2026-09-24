@@ -84,6 +84,14 @@ if (window.fetch) {
   const slug = document.querySelector('[data-trip-slug]')?.dataset.tripSlug;
   const panel = document.querySelector('[data-download-panel]');
   const count = document.querySelector('[data-selection-count]');
+  let busy = false;
+  let progressiveEnabled = true;
+  function setBusy(value) {
+    busy = value;
+    for (const button of document.querySelectorAll('.selection-form button, [data-bulk-selection]')) {
+      button.disabled = value || (!progressiveEnabled && button.hasAttribute('data-bulk-selection'));
+    }
+  }
   function setForm(form, selected) {
     form.querySelector('input[name="selected"]').value = String(!selected);
     form.querySelector('button').textContent = selected ? 'Desmarcar' : 'Selecionar';
@@ -101,13 +109,16 @@ if (window.fetch) {
   async function refreshDownloads() {
     if (!panel || !slug) return;
     const response = await fetch('/api/catalog/trips/' + encodeURIComponent(slug) + '/selected-downloads');
-    panel.replaceChildren();
     if (response.status === 409) {
-      panel.textContent = 'Selecione assets para baixar os originais.';
+      const error = await response.json();
+      panel.textContent = error.error?.code === 'selection_empty'
+        ? 'Selecione assets para baixar os originais.'
+        : 'Original indisponível. Revise a seleção antes de baixar.';
       return;
     }
     if (!response.ok) throw new Error('downloads');
     const data = await response.json();
+    panel.replaceChildren();
     const heading = document.createElement('strong');
     heading.textContent = data.count + ' originais';
     panel.appendChild(heading);
@@ -133,10 +144,12 @@ if (window.fetch) {
   document.addEventListener('submit', async function(event) {
     const form = event.target.closest?.('.selection-form');
     if (!form) return;
+    if (!progressiveEnabled) return;
     event.preventDefault();
+    if (busy) return;
     const button = form.querySelector('button');
     const selected = form.querySelector('input[name="selected"]').value === 'true';
-    button.disabled = true;
+    setBusy(true);
     if (message) message.textContent = '';
     try {
       const response = await fetch('/api/catalog/assets/' + encodeURIComponent(form.dataset.assetId) + '/selection', {
@@ -150,16 +163,17 @@ if (window.fetch) {
       try { await refreshDownloads(); }
       catch (_) { if (panel) panel.textContent = 'Não foi possível atualizar os downloads. Recarregue a página.'; }
     } catch (_) {
-      if (message) message.textContent = 'Não foi possível salvar a seleção. Tente novamente.';
-      else alert('Não foi possível salvar a seleção. Tente novamente.');
-    } finally { button.disabled = false; }
+      progressiveEnabled = false;
+      button.textContent = 'Tentar pelo formulário';
+      if (message) message.textContent = 'Não foi possível confirmar a seleção. Recarregue para conferir o estado ou use o formulário.';
+      else alert('Não foi possível confirmar a seleção. Recarregue ou use o formulário.');
+    } finally { setBusy(false); }
   });
   document.addEventListener('click', async function(event) {
     const clicked = event.target.closest?.('[data-bulk-selection]');
-    if (!clicked || !slug) return;
+    if (!clicked || !slug || busy || !progressiveEnabled) return;
     const forms = Array.from(document.querySelectorAll('.grid .selection-form'));
-    const buttons = document.querySelectorAll('[data-bulk-selection]');
-    for (const button of buttons) button.disabled = true;
+    setBusy(true);
     if (message) message.textContent = '';
     try {
       const selected = clicked.dataset.bulkSelection === 'true';
@@ -174,8 +188,9 @@ if (window.fetch) {
       try { await refreshDownloads(); }
       catch (_) { if (panel) panel.textContent = 'Não foi possível atualizar os downloads. Recarregue a página.'; }
     } catch (_) {
-      if (message) message.textContent = 'Não foi possível salvar a seleção. Tente novamente.';
-    } finally { for (const button of buttons) button.disabled = false; }
+      progressiveEnabled = false;
+      if (message) message.textContent = 'Não foi possível confirmar a seleção. Recarregue para conferir o estado; os formulários individuais permanecem disponíveis.';
+    } finally { setBusy(false); }
   });
   document.addEventListener('click', function(event) {
     if (!event.target.closest?.('#download-selected')) return;

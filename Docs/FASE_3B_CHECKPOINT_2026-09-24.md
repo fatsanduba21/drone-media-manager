@@ -64,6 +64,23 @@ vazio após a movimentação e continua listado, sem ação de exclusão na API 
 na interface. A decisão sobre excluir grupos vazios deve ser tomada no aceite
 real antes de 3C consumir os grupos; nenhuma exclusão automática foi presumida.
 
+## Melhorias editoriais adiadas — implementação local
+
+Em 24/09/2026, a branch `chore/pre-phase-3c-codebase-consolidation` recebeu a
+implementação do plano de nomes, galeria e seleção: grupo confirmado separado
+do POI inicial, seleção individual sem recarga com formulário POST de fallback,
+seleção em lote limitada aos cards exibidos, nomes físicos neutros para novas
+viagens e nomes editoriais nas cópias baixadas. A repetição de manifesto legado
+e a ausência de alteração de bytes dos originais têm testes de integração.
+
+Verificação local após revisão: 319 testes aprovados, 3 ignorados; Ruff e mypy
+aprovados. A sintaxe do JavaScript foi verificada com Node. O teste de interação
+no navegador local foi bloqueado pela política de URL do navegador. Permanecem
+pendentes o backup do SQLite no Mac, a atualização do checkout, a matriz manual
+com viagem de teste distinta de `noronha-teste`, comparação SHA-256 do download
+real com o manifesto, persistência após reinício e publicação da branch para
+revisão. Estes resultados não alteram o estado de aceite da Fase 3B.
+
 ## Preparação da Fase 3C
 
 A seção 9 de [03_FASE_3_INTELIGENCIA_EDITORIAL_E_ORGANIZACAO_AUTOMATICA.md](03_FASE_3_INTELIGENCIA_EDITORIAL_E_ORGANIZACAO_AUTOMATICA.md) define classificação de movimento por segmentos, com evidência, confiança e versão do algoritmo. O parser atual `grouping/telemetry.py` entrega apenas contagem, início, fim, centroide e horário; ele não conserva a trajetória por amostra nem extrai altitude, yaw ou gimbal. Esse é o primeiro requisito técnico a resolver para classificar movimentos com base em telemetria.

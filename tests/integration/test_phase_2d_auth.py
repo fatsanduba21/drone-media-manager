@@ -314,6 +314,12 @@ def test_bulk_selection_is_atomic_idempotent_and_keeps_hidden_assets(
     )
     assert (
         client.put(
+            url, json={"asset_ids": ["x"] * 2001, "selected": True}, headers=headers
+        ).status_code
+        == 422
+    )
+    assert (
+        client.put(
             url, json={"asset_ids": ids[:20], "selected": False}, headers=headers
         ).json()["selected_count"]
         == 80
@@ -321,6 +327,44 @@ def test_bulk_selection_is_atomic_idempotent_and_keeps_hidden_assets(
     assert client.get(f"/api/catalog/assets/{ids[20]}").json()["selected"] is True
     page = client.get("/gallery/viagem", params={"media_type": "VIDEO"})
     assert "data-bulk-selection" in page.text
+    with sessions() as session:
+        session.add(
+            User(
+                username="viewer", password_hash=hash_password("another password here")
+            )
+        )
+        session.commit()
+    with TestClient(client.app, base_url="https://testserver") as viewer:
+        login_page = viewer.get("/login")
+        match = re.search(r'name="csrf_token" value="([^"]+)"', login_page.text)
+        assert match is not None
+        assert (
+            viewer.post(
+                "/login",
+                data={
+                    "username": "viewer",
+                    "password": "another password here",
+                    "csrf_token": match[1],
+                },
+                follow_redirects=False,
+            ).status_code
+            == 303
+        )
+        with sessions() as session:
+            other_csrf = (
+                session.query(UserSession)
+                .order_by(UserSession.created_at.desc())
+                .first()
+            )
+            assert other_csrf is not None
+        response = viewer.put(
+            url,
+            json={"asset_ids": ids[:1], "selected": True},
+            headers={"X-CSRF-Token": other_csrf.csrf_token},
+        )
+        assert response.status_code == 200
+        assert response.json()["selected_count"] == 1
+    assert "80 selecionados" in client.get("/gallery/viagem").text
 
 
 def test_selection_is_private_to_user_and_gallery_form_checks_csrf(

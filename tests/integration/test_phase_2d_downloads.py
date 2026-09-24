@@ -355,3 +355,54 @@ def test_download_name_sanitizes_confirmed_group_without_losing_id(
     assert response.status_code == 200
     assert "aaaaaaaa.mp4" in header
     assert "\\" not in header and "\r" not in header and "\n" not in header
+
+
+def test_confirmed_group_download_names_stay_unique_when_id8_collides(
+    downloads: tuple[TestClient, sessionmaker[Session], ServerSettings],
+) -> None:
+    client, sessions, settings = downloads
+    colliding = "a" * 8 + "c" * 56
+    with sessions() as session:
+        trip = session.query(Trip).filter_by(slug="viagem").one()
+        group = LocationGroup(trip_id=trip.id, name_final="Baía")
+        session.add(group)
+        session.flush()
+        first = session.scalar(select(CatalogAsset).where(CatalogAsset.asset_id == A))
+        assert first is not None
+        first.location_group_id = group.id
+        first.capture_date = "2026-09-24"
+        duplicate = CatalogAsset(
+            asset_id=colliding,
+            trip_id=trip.id,
+            location_group_id=group.id,
+            capture_date="2026-09-24",
+            media_type="VIDEO",
+            classification="YOUTUBE_16X9",
+            verification_status="VERIFIED",
+        )
+        session.add(duplicate)
+        session.flush()
+        rel = "viagem/poi/YOUTUBE_16x9/colisao.mp4"
+        path = settings.omv_root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"collision-original")
+        session.add(
+            AssetFile(
+                catalog_asset_id=duplicate.id,
+                role="ORIGINAL",
+                rel_path=rel,
+                sha256=hashlib.sha256(b"collision-original").hexdigest(),
+                size_bytes=len(b"collision-original"),
+                availability_status="AVAILABLE",
+            )
+        )
+        session.commit()
+    _select(client, sessions, A)
+    _select(client, sessions, colliding)
+    names = [
+        item["filename"]
+        for item in client.get("/api/catalog/trips/viagem/selected-downloads").json()[
+            "files"
+        ]
+    ]
+    assert len(names) == len(set(names)) == 2

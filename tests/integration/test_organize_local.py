@@ -251,6 +251,18 @@ def test_new_trip_uses_neutral_names_and_keeps_pair_and_hashes(
     before = manifest_path.read_bytes()
     assert apply_plan(build_plan(source, omv, "Nova viagem"))["counts"]["CREATED"] == 0
     assert manifest_path.read_bytes() == before
+    assert (
+        apply_plan(build_plan(source, omv, "Nova viagem", movement="orbita"))["counts"][
+            "CREATED"
+        ]
+        == 0
+    )
+    updated = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert all(
+        asset["editorial"]["movement"] == "orbita"
+        for asset in updated["assets"]
+        if asset["video"] is not None
+    )
 
 
 def test_existing_legacy_manifest_replays_without_renaming(
@@ -266,15 +278,20 @@ def test_existing_legacy_manifest_replays_without_renaming(
     monkeypatch.setattr(
         "drone_media_manager.organize._naming_scheme", lambda path: None
     )
-    first = apply_plan(build_plan(source, omv, "Viagem legada", "Praia"))
+    first = apply_plan(
+        build_plan(
+            source, omv, "Viagem legada", "Praia", movement="orbita", people="sim"
+        )
+    )
     monkeypatch.setattr("drone_media_manager.organize._naming_scheme", original_scheme)
     assert first["status"] == "APPLIED"
     manifest_path = Path(first["manifest"])
     legacy = json.loads(manifest_path.read_text(encoding="utf-8"))
     legacy.pop("naming_scheme", None)
+    legacy["assets"].sort(key=lambda asset: asset["classification"] != "FOTOS")
     manifest_path.write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
     before = manifest_path.read_bytes()
-    plan = build_plan(source, omv, "Viagem legada", "Praia")
+    plan = build_plan(source, omv, "Viagem legada")
     assert plan.preview()["manifest_preview"].get("naming_scheme") is None
     result = apply_plan(plan)
     assert result["status"] == "APPLIED"
