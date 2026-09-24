@@ -22,6 +22,7 @@ from drone_media_manager.db.models.auth import User
 from drone_media_manager.db.models.catalog import CatalogAsset, Derivative
 from drone_media_manager.db.models.ingest import Trip
 from drone_media_manager.db.session import create_engine_from_settings, session_factory
+from drone_media_manager.grouping.models import LocationGroup
 
 TRIP = "teste-fase-1"
 PORTRAIT = "a" * 64
@@ -100,15 +101,26 @@ def catalog(
                         size_bytes=len(payload),
                     )
                 )
-        session.add(User(username="editor", password_hash=hash_password("correct horse battery staple")))
+        session.add(
+            User(
+                username="editor",
+                password_hash=hash_password("correct horse battery staple"),
+            )
+        )
         session.commit()
-    with TestClient(create_app(settings, sessions), base_url="https://testserver") as client:
+    with TestClient(
+        create_app(settings, sessions), base_url="https://testserver"
+    ) as client:
         page = client.get("/login")
         token = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
         assert token is not None
         response = client.post(
             "/login",
-            data={"username": "editor", "password": "correct horse battery staple", "csrf_token": token[1]},
+            data={
+                "username": "editor",
+                "password": "correct horse battery staple",
+                "csrf_token": token[1],
+            },
             follow_redirects=False,
         )
         assert response.status_code == 303
@@ -410,3 +422,56 @@ def test_missing_ready_file_is_not_advertised_in_catalog_or_gallery(
     gallery = client.get(f"/gallery/{TRIP}")
     assert gallery.status_code == 200
     assert "Pr\u00e9via indispon\u00edvel" in gallery.text
+
+
+def test_confirmed_group_is_separate_from_initial_poi_and_filter_is_trip_scoped(
+    catalog: tuple[TestClient, sessionmaker[Session], ServerSettings],
+) -> None:
+    client, sessions, _ = catalog
+    with sessions() as session:
+        trip = session.scalar(select(Trip).where(Trip.slug == TRIP))
+        assert trip is not None
+        group = LocationGroup(trip_id=trip.id, name_final="Baía dos Porcos")
+        other = Trip(name="Outra", slug="outra", nas_rel_path="outra")
+        session.add_all([group, other])
+        session.flush()
+        foreign = LocationGroup(trip_id=other.id, name_final="Outro grupo")
+        session.add(foreign)
+        asset = session.scalar(
+            select(CatalogAsset).where(CatalogAsset.asset_id == PORTRAIT)
+        )
+        assert asset is not None
+        asset.location_group_id = group.id
+        photo = session.scalar(
+            select(CatalogAsset).where(CatalogAsset.asset_id == PHOTO)
+        )
+        assert photo is not None
+        photo.poi_final = None
+        session.commit()
+        group_id, foreign_id = group.id, foreign.id
+    payload = client.get(f"/api/catalog/assets/{PORTRAIT}").json()
+    assert payload["poi"] == "Praia"
+    assert payload["location_group_id"] == group_id
+    assert payload["location_group_name"] == "Baía dos Porcos"
+    assert (
+        client.get(f"/api/catalog/assets/{PHOTO}").json()["location_group_name"] is None
+    )
+    listed = client.get(
+        f"/api/catalog/trips/{TRIP}/assets", params={"group_id": "ungrouped"}
+    ).json()
+    assert {item["asset_id"] for item in listed["assets"]} == {LANDSCAPE, PHOTO}
+    assert (
+        client.get(
+            f"/api/catalog/trips/{TRIP}/assets", params={"group_id": foreign_id}
+        ).status_code
+        == 404
+    )
+    page = client.get(f"/gallery/{TRIP}")
+    assert "Baía dos Porcos" in page.text
+    assert "Outro grupo" not in page.text
+    assert 'name="group_id"' in page.text
+    assert "Baía dos Porcos" in client.get(f"/gallery/{TRIP}/assets/{PORTRAIT}").text
+    assert (
+        "1 de 3 assets"
+        in client.get(f"/gallery/{TRIP}", params={"group_id": group_id}).text
+    )

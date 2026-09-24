@@ -16,6 +16,7 @@ from drone_media_manager.api.routes.catalog import (
     _asset,
     _asset_payload,
     _assets,
+    _group_names,
     _trip,
 )
 from drone_media_manager.api.routes.downloads import selected_originals
@@ -215,8 +216,9 @@ def _card(
     settings: ServerSettings,
     user_id: str,
     csrf_token: str,
+    group_names: dict[str, str],
 ) -> str:
-    payload = _asset_payload(session, asset, settings, user_id)
+    payload = _asset_payload(session, asset, settings, user_id, group_names)
     asset_url = (
         f"/gallery/{quote(slug, safe='')}/assets/{quote(asset.asset_id, safe='')}"
     )
@@ -227,7 +229,7 @@ def _card(
         else '<span class="missing">Prévia indisponível</span>'
     )
     kind = "Vídeo" if asset.media_type == "VIDEO" else "Foto"
-    title = payload["poi"] or kind
+    title = payload["location_group_name"] or payload["poi"] or kind
     return (
         f'<div class="card"><a href="{asset_url}"><div class="thumb">{preview}</div>'
         '<div class="card-body">'
@@ -235,6 +237,7 @@ def _card(
         f"<h3>{_label(title)}</h3><dl>"
         + _field("Duração", _duration(asset.duration_ms))
         + _field("POI", payload["poi"])
+        + _field("Grupo confirmado", payload["location_group_name"])
         + _field("Movimento", asset.movement)
         + _field("Pessoas", asset.people)
         + "</dl></div></a>"
@@ -294,6 +297,7 @@ def gallery_router(
         movement: str | None = None,
         people: str | None = None,
         media_type: str | None = None,
+        group_id: str | None = None,
     ) -> HTMLResponse:
         with session_factory() as session:
             trip = _trip(session, slug)
@@ -306,6 +310,20 @@ def gallery_router(
                 movement=movement,
                 people=people,
                 media_type=media_type,
+                group_id=group_id,
+            )
+            group_names = _group_names(session, trip.id)
+            group_options = [
+                '<option value="">Todos</option>',
+                '<option value="ungrouped"'
+                + (" selected" if group_id == "ungrouped" else "")
+                + ">Sem grupo</option>",
+            ]
+            group_options.extend(
+                f'<option value="{escape(key, quote=True)}"{" selected" if key == group_id else ""}>{escape(value)}</option>'
+                for key, value in sorted(
+                    group_names.items(), key=lambda pair: pair[1].casefold()
+                )
             )
             fields = (
                 _select(
@@ -338,6 +356,9 @@ def gallery_router(
                     {a.media_type for a in all_assets},
                     media_type,
                 )
+                + '<label>Grupo confirmado<select name="group_id">'
+                + "".join(group_options)
+                + "</select></label>"
             )
             identity = require_browser_identity(request)
             count = selected_count(session, identity.user_id, trip.id)
@@ -349,6 +370,7 @@ def gallery_router(
                     settings,
                     identity.user_id,
                     identity.csrf_token,
+                    group_names,
                 )
                 for asset in shown
             )
@@ -412,11 +434,12 @@ def gallery_router(
             '<div class="detail"><div>'
             f'<div class="{frame_class}">{media}</div></div><aside>'
             '<span class="eyebrow">Prévia / asset</span>'
-            f"<h1>{_label(payload['poi'] or asset.media_type)}</h1>"
+            f"<h1>{_label(payload['location_group_name'] or payload['poi'] or asset.media_type)}</h1>"
             f'<span class="badge">{escape(asset.classification)}</span>'
             '<dl class="facts">'
             + _field("Duração", _duration(asset.duration_ms))
             + _field("POI", payload["poi"])
+            + _field("Grupo confirmado", payload["location_group_name"])
             + _field("Movimento", asset.movement)
             + _field("Pessoas", asset.people)
             + _field("Tipo", asset.media_type)

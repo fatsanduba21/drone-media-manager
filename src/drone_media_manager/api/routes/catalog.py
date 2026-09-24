@@ -18,6 +18,7 @@ from drone_media_manager.config import ServerSettings
 from drone_media_manager.db.models.catalog import CatalogAsset, Derivative
 from drone_media_manager.db.models.ingest import Trip
 from drone_media_manager.derivatives.service import PROFILES
+from drone_media_manager.grouping.models import LocationGroup
 from drone_media_manager.grouping.repository import ordered_assets
 
 _CACHE = "private, max-age=3600, must-revalidate"
@@ -57,7 +58,12 @@ def _assets(
     movement: str | None = None,
     people: str | None = None,
     media_type: str | None = None,
+    group_id: str | None = None,
 ) -> list[CatalogAsset]:
+    if group_id and group_id != "ungrouped":
+        group = session.get(LocationGroup, group_id)
+        if group is None or group.trip_id != trip.id:
+            raise _missing("group_not_found")
     candidates = ordered_assets(session, trip.id, include_missing=True)
     return [
         asset
@@ -67,7 +73,26 @@ def _assets(
         and _matches(asset.poi_final or asset.poi_suggested, poi)
         and _matches(asset.movement, movement)
         and _matches(asset.people, people)
+        and (
+            not group_id
+            or (
+                asset.location_group_id is None
+                if group_id == "ungrouped"
+                else asset.location_group_id == group_id
+            )
+        )
     ]
+
+
+def _group_names(session: Session, trip_id: str) -> dict[str, str]:
+    return {
+        group_id: name
+        for group_id, name in session.execute(
+            select(LocationGroup.id, LocationGroup.name_final).where(
+                LocationGroup.trip_id == trip_id
+            )
+        )
+    }
 
 
 def _asset(session: Session, asset_id: str) -> CatalogAsset:
@@ -84,6 +109,7 @@ def _asset_payload(
     asset: CatalogAsset,
     settings: ServerSettings,
     user_id: str | None = None,
+    group_names: dict[str, str] | None = None,
 ) -> dict[str, object]:
     ready: set[str] = set()
     kinds = ("THUMBNAIL", "PROXY") if asset.media_type == "VIDEO" else ("THUMBNAIL",)
@@ -102,6 +128,12 @@ def _asset_payload(
         "classification": asset.classification,
         "duration_ms": asset.duration_ms,
         "poi": asset.poi_final or asset.poi_suggested,
+        "location_group_id": asset.location_group_id,
+        "location_group_name": (
+            group_names
+            if group_names is not None
+            else _group_names(session, asset.trip_id)
+        ).get(asset.location_group_id or ""),
         "movement": asset.movement,
         "people": asset.people,
         "display_width": asset.display_width,
@@ -209,6 +241,7 @@ def catalog_router(
         movement: str | None = None,
         people: str | None = None,
         media_type: str | None = None,
+        group_id: str | None = None,
     ) -> dict[str, object]:
         with session_factory() as session:
             trip = _trip(session, slug)
@@ -220,7 +253,9 @@ def catalog_router(
                 movement=movement,
                 people=people,
                 media_type=media_type,
+                group_id=group_id,
             )
+            groups = _group_names(session, trip.id)
             return {
                 "trip": _trip_payload(session, trip),
                 "total": len(assets),
@@ -230,6 +265,7 @@ def catalog_router(
                         asset,
                         settings,
                         require_browser_identity(request).user_id,
+                        groups,
                     )
                     for asset in assets
                 ],
@@ -238,11 +274,13 @@ def catalog_router(
     @router.get("/assets/{asset_id}")
     def asset_detail(asset_id: str, request: Request) -> dict[str, object]:
         with session_factory() as session:
+            asset = _asset(session, asset_id)
             return _asset_payload(
                 session,
-                _asset(session, asset_id),
+                asset,
                 settings,
                 require_browser_identity(request).user_id,
+                _group_names(session, asset.trip_id),
             )
 
     @router.get("/assets/{asset_id}/thumbnail", response_model=None)
