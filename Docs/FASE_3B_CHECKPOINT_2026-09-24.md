@@ -78,8 +78,9 @@ aprovados. A sintaxe do JavaScript foi verificada com Node. O teste de interaç�
 no navegador local foi bloqueado pela política de URL do navegador. Permanecem
 pendentes o backup do SQLite no Mac, a atualização do checkout, a matriz manual
 com viagem de teste distinta de `noronha-teste`, comparação SHA-256 do download
-real com o manifesto, persistência após reinício e publicação da branch para
-revisão. Estes resultados não alteram o estado de aceite da Fase 3B.
+real com o manifesto e persistência após reinício. A branch foi publicada no
+`origin` em `4d0c742` para revisão. Estes resultados não alteram o estado de
+aceite da Fase 3B.
 
 ## Preparação da Fase 3C
 
