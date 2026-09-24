@@ -14,10 +14,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("command", choices=("plan", "apply"))
     parser.add_argument("--source", required=True)
     parser.add_argument("--trip", required=True)
-    parser.add_argument("--poi", required=True)
+    parser.add_argument("--poi")
     parser.add_argument("--output-omv", required=True)
-    parser.add_argument("--movement", default="desconhecido")
-    parser.add_argument("--people", default="desconhecido")
+    parser.add_argument("--movement")
+    parser.add_argument("--people")
     parser.add_argument("--date")
     parser.add_argument("--ffprobe", default="ffprobe")
     return parser

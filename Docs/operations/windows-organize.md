@@ -10,17 +10,17 @@ Instale o projeto com `uv sync --all-groups` e confirme que `ffprobe` está no
 uv run dmm-organize plan `
   --source 'C:\caminho\origem' `
   --trip 'Nome da Viagem' `
-  --poi 'Nome do Lugar' `
   --output-omv 'P:\drone-organizado'
 
 uv run dmm-organize apply `
   --source 'C:\caminho\origem' `
   --trip 'Nome da Viagem' `
-  --poi 'Nome do Lugar' `
   --output-omv 'P:\drone-organizado'
 ```
 
-Opcionalmente informe `--movement`, `--people` e `--date YYYY-MM-DD`. Sem data
+Opcionalmente informe `--poi`, `--movement`, `--people` e `--date YYYY-MM-DD`.
+Sem `--poi`, a pasta inicial é `a-classificar` e o POI do manifesto é nulo.
+`--poi` define apenas a pasta e o POI inicial, não um grupo confirmado. Sem data
 manual, vídeos usam `creation_time` do MP4 quando válido; arquivos DJI com
 timestamp no nome usam esse valor como fallback. O manifesto registra a origem
 da data. Se nenhuma fonte estiver disponível, usa `desconhecido`.
@@ -34,10 +34,15 @@ O APPLY copia cada arquivo para um temporário, verifica SHA-256, promove para o
 nome final e grava `MANIFESTO.json` na pasta da viagem. Destinos divergentes
 impedem a operação; um arquivo idêntico recebe `ALREADY_OK`. Repetir PLAN e
 APPLY com os mesmos argumentos não duplica arquivos. MP4 e SRT pareados têm o
-mesmo basename editorial. O SRT órfão aparece no relatório e não é copiado
+mesmo basename físico. O SRT órfão aparece no relatório e não é copiado
 isoladamente.
 
-A saída segue `<OMV>/<trip>/<poi>/<categoria>/arquivo`. As categorias são
+A saída segue `<OMV>/<trip>/<pasta-inicial>/<categoria>/arquivo`. Para viagens
+novas, os arquivos recebem nome neutro com data, stem seguro da origem,
+formato e oito caracteres do ID. O manifesto registra `naming_scheme:
+neutral-v1`. Viagens com manifesto antigo mantêm os caminhos anteriores em
+PLAN/APPLY; não renomeie os originais já publicados.
+As categorias são
 `YOUTUBE_16x9`, `INSTAGRAM_9x16`, `FOTOS` e `OUTROS_REVISAR`. A pasta da viagem
 contém `MANIFESTO.json`, contrato da importação atual no Mac.
 No Mac, aponte `DMM_OMV_ROOT` para a mesma raiz compartilhada, execute

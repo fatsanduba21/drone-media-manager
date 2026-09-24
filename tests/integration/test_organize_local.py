@@ -221,3 +221,62 @@ def test_organizer_manifest_imports_into_mac_catalog(tmp_path: Path) -> None:
             )
     finally:
         engine.dispose()
+
+
+def test_new_trip_uses_neutral_names_and_keeps_pair_and_hashes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("drone_media_manager.organize.probe_video", _probe)
+    source = _source(tmp_path)
+    (source / ("Inválido espaço " + "x" * 90 + ".jpg")).write_bytes(b"long-photo")
+    omv = tmp_path / "omv"
+    omv.mkdir()
+    plan = build_plan(source, omv, "Nova viagem")
+    preview = plan.preview()["manifest_preview"]
+    assert preview["naming_scheme"] == "neutral-v1"
+    assert all(asset["location"]["poi_final"] is None for asset in preview["assets"])
+    assert all(asset["editorial"]["movement"] is None for asset in preview["assets"])
+    assert all(asset["editorial"]["people"] is None for asset in preview["assets"])
+    for asset in preview["assets"]:
+        paths = asset["output"]
+        relative = paths["video_relative_path"] or paths["photo_relative_path"]
+        assert relative is not None and "/a-classificar/" in relative
+        assert "desconhecido" not in Path(relative).name
+        assert len(Path(relative).stem.split("_")[1]) <= 48
+        if paths["srt_relative_path"]:
+            assert Path(paths["srt_relative_path"]).stem == Path(relative).stem
+    first = apply_plan(plan)
+    assert first["status"] == "APPLIED"
+    manifest_path = Path(first["manifest"])
+    before = manifest_path.read_bytes()
+    assert apply_plan(build_plan(source, omv, "Nova viagem"))["counts"]["CREATED"] == 0
+    assert manifest_path.read_bytes() == before
+
+
+def test_existing_legacy_manifest_replays_without_renaming(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("drone_media_manager.organize.probe_video", _probe)
+    source = _source(tmp_path)
+    omv = tmp_path / "omv"
+    omv.mkdir()
+    original_scheme = __import__(
+        "drone_media_manager.organize", fromlist=["_naming_scheme"]
+    )._naming_scheme
+    monkeypatch.setattr(
+        "drone_media_manager.organize._naming_scheme", lambda path: None
+    )
+    first = apply_plan(build_plan(source, omv, "Viagem legada", "Praia"))
+    monkeypatch.setattr("drone_media_manager.organize._naming_scheme", original_scheme)
+    assert first["status"] == "APPLIED"
+    manifest_path = Path(first["manifest"])
+    legacy = json.loads(manifest_path.read_text(encoding="utf-8"))
+    legacy.pop("naming_scheme", None)
+    manifest_path.write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
+    before = manifest_path.read_bytes()
+    plan = build_plan(source, omv, "Viagem legada", "Praia")
+    assert plan.preview()["manifest_preview"].get("naming_scheme") is None
+    result = apply_plan(plan)
+    assert result["status"] == "APPLIED"
+    assert result["counts"] == {"CREATED": 0, "ALREADY_OK": 4}
+    assert manifest_path.read_bytes() == before

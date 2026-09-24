@@ -7,9 +7,9 @@ mesmo diretório compartilhado. O layout escrito por `dmm-organize` é:
 <raiz-omv>/
   <trip_slug>/
     MANIFESTO.json
-    <poi_slug>/
+    <pasta-inicial>/
       YOUTUBE_16x9/ | INSTAGRAM_9x16/ | FOTOS/ | OUTROS_REVISAR/
-        <nome-editorial>.<mp4|srt|jpg|jpeg>
+        <nome-fisico>.<mp4|srt|jpg|jpeg>
 ```
 
 Os caminhos dentro do manifesto são relativos à raiz OMV, usam `/` e começam
@@ -21,6 +21,15 @@ hash SHA-256 do original e, quando houver SRT, o caminho e hash dele. O
 organizador só publica `verification_status: VERIFIED` após verificar a cópia.
 O importador rejeita esquema, paths ou hashes inválidos; `--verify-hash`
 recalcula os hashes pelo Mac.
+
+Novos manifestos incluem `naming_scheme: "neutral-v1"`. Sem `--poi`, a pasta
+inicial é `a-classificar` e `location.poi_final` é nulo. O nome físico usa
+`{data}_{stem-seguro}_{formato}_{id8}`, ou `{data}_{stem-seguro}_foto_{id8}`
+para fotos, sem metadados editoriais. O stem é limitado a 48 caracteres;
+MP4/SRT pareados compartilham basename. Manifestos antigos sem `naming_scheme`
+continuam com os caminhos anteriores; a repetição de PLAN/APPLY não converte
+nem renomeia arquivos já publicados. Nomes de grupo confirmado só aparecem
+nas cópias baixadas pelo Mac.
 
 `trips/<slug>/00_INBOX_ORIGINALS` e `trips/<slug>-<id>/...` pertencem à
 ingestão distribuída **LEGACY/EXPERIMENTAL**. Nenhuma feature nova deve gravar

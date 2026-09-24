@@ -199,6 +199,7 @@ class OrganizePlan:
     orphan_srt: list[str]
     unsupported: list[str]
     errors: list[str]
+    naming_scheme: str | None
 
     def file_state(self, planned: PlannedFile) -> str:
         target = RootMapper(self.output_root).to_host_path(
@@ -238,6 +239,7 @@ class OrganizePlan:
             "errors": self.errors,
             "manifest_preview": {
                 "schema_version": 1,
+                **({"naming_scheme": self.naming_scheme} if self.naming_scheme else {}),
                 "trip": {
                     "name": self.trip_name,
                     "slug": self.trip_slug,
@@ -250,14 +252,24 @@ class OrganizePlan:
         }
 
 
+def _naming_scheme(manifest_path: Path) -> str | None:
+    if not manifest_path.exists():
+        return "neutral-v1"
+    try:
+        existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return existing.get("naming_scheme") if isinstance(existing, dict) else None
+
+
 def build_plan(
     source_path: str | Path,
     output_omv: str | Path,
     trip_name: str,
-    poi: str,
+    poi: str | None = None,
     *,
-    movement: str = "desconhecido",
-    people: str = "desconhecido",
+    movement: str | None = None,
+    people: str | None = None,
     capture_date: str | None = None,
     ffprobe: str = "ffprobe",
 ) -> OrganizePlan:
@@ -272,9 +284,30 @@ def build_plan(
     ):
         raise ValueError("source and output roots must not overlap")
     trip_slug = _slug(trip_name)
-    poi_slug = _slug(poi)
-    movement_slug = _slug(movement)
-    people_slug = _slug(people)
+    manifest_path = output_root / trip_slug / "MANIFESTO.json"
+    naming_scheme = _naming_scheme(manifest_path)
+    if naming_scheme not in (None, "neutral-v1"):
+        raise ValueError("unsupported naming scheme")
+    if naming_scheme is None and manifest_path.exists() and poi is None:
+        try:
+            existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+            first = existing["assets"][0]
+            poi = first["location"]["poi_final"]
+            movement = movement or first["editorial"].get("movement")
+            people = people or first["editorial"].get("people")
+        except (OSError, KeyError, IndexError, TypeError, ValueError):
+            pass
+    poi_slug = _slug(poi) if poi else "a-classificar"
+    movement_slug = (
+        _slug(movement or "desconhecido")
+        if naming_scheme is None
+        else (_slug(movement) if movement else None)
+    )
+    people_slug = (
+        _slug(people or "desconhecido")
+        if naming_scheme is None
+        else (_slug(people) if people else None)
+    )
     if capture_date is not None:
         date.fromisoformat(capture_date)
     source = FilesystemReadOnlySource(source_from_explicit_path(source_root))
@@ -366,14 +399,24 @@ def build_plan(
                     except ValueError:
                         pass
             folder, format_label = _CATEGORIES[classification]
-            if is_photo:
+            if naming_scheme == "neutral-v1":
+                stem = _slug(primary.relative_path.stem)[:48].rstrip("-")
+                physical_date = (
+                    "sem-data" if date_label == "desconhecido" else date_label
+                )
+                basename = f"{physical_date}_{stem}_{format_label}_{asset_id[:8]}"
+                if is_photo:
+                    basename = f"{physical_date}_{stem}_foto_{asset_id[:8]}"
+            elif is_photo:
                 basename = f"{date_label}_{poi_slug}_foto_{asset_id[:8]}"
-                extension = primary.relative_path.suffix.lower()
             else:
                 basename = (
                     f"{date_label}_{poi_slug}_{movement_slug}_pessoas-{people_slug}"
                     f"_{format_label}_{asset_id[:8]}"
                 )
+            if is_photo:
+                extension = primary.relative_path.suffix.lower()
+            else:
                 extension = ".mp4"
             relative = f"{trip_slug}/{poi_slug}/{folder}/{basename}{extension}"
             srt_relative = (
@@ -445,6 +488,7 @@ def build_plan(
         orphan_srt,
         unsupported,
         errors,
+        naming_scheme,
     )
 
 
@@ -461,6 +505,7 @@ def _compatible_manifest(
         return [], ["invalid existing manifesto structure"]
     if (
         existing.get("schema_version") != 1
+        or existing.get("naming_scheme") != plan.naming_scheme
         or existing["trip"].get("slug") != plan.trip_slug
         or existing["trip"].get("name") != plan.trip_name
     ):
@@ -564,8 +609,21 @@ def apply_plan(plan: OrganizePlan) -> dict[str, Any]:
         for asset_record in plan.assets:
             asset_record["output"]["verification_status"] = "VERIFIED"
             merged[asset_record["asset_id"]] = asset_record
+        if (
+            old_assets
+            and counts["CREATED"] == 0
+            and {item["asset_id"] for item in old_assets}
+            == {item["asset_id"] for item in plan.assets}
+        ):
+            return {
+                "status": "APPLIED",
+                "errors": [],
+                "counts": counts,
+                "manifest": str(manifest_path),
+            }
         manifest = {
             "schema_version": 1,
+            **({"naming_scheme": plan.naming_scheme} if plan.naming_scheme else {}),
             "trip": {
                 "name": plan.trip_name,
                 "slug": plan.trip_slug,
