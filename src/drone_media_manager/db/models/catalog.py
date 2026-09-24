@@ -58,6 +58,7 @@ class CatalogAsset(Base):
     display_height: Mapped[int | None] = mapped_column(Integer)
     rotation_degrees: Mapped[float | None] = mapped_column(Float)
     capture_date: Mapped[str | None] = mapped_column(String(32))
+    capture_time: Mapped[str | None] = mapped_column(String(40))
     capture_date_source: Mapped[str | None] = mapped_column(String(64))
     poi_final: Mapped[str | None] = mapped_column(String(255))
     poi_suggested: Mapped[str | None] = mapped_column(String(255))

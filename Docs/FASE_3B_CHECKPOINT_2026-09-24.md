@@ -25,6 +25,39 @@ nomes com caracteres portugueses e ausência de alteração dos originais.
 Executar essa matriz no Mac/OMV e registrar evidência antes de mudar o estado
 para **PHASE 3B — ACCEPTED**.
 
+## Regressão real com `noronha-teste` (24/09/2026)
+
+Resultados informados pela usuária nesta sessão:
+
+- Windows → OMV: primeiro `apply` com 18 `CREATED`, zero erros; repetição com
+  zero `CREATED`, 18 `ALREADY_OK`, zero erros e `MANIFESTO.json` publicado.
+- Mac: `preview --verify-hash` com 11 assets, 18 arquivos disponíveis, zero
+  ausentes e conflitos; importação com 11 assets e 18 arquivos criados;
+  repetição com zero criações e 11 `already_imported`.
+- Derivados: 19 gerados, zero falhas; repetição com 19 reutilizados e zero falhas.
+- Galeria: listagem, mídia, seleção e download passaram no teste informado.
+- Editorial: sugestões e alteração de alguns nomes funcionaram no teste
+  informado. Essas edições ocorreram antes do backup; fazer backup agora para
+  preservar o estado atual. Ainda faltam evidências dos demais itens da matriz
+  3B, inclusive persistência após reinício.
+
+Achados de uso real a priorizar separadamente do aceite funcional:
+
+- O organizador usa `desconhecido` como valor padrão de movimento e pessoas e
+  incorpora ambos ao nome físico. O nome de grupo confirmado vive no catálogo;
+  renomear os originais já importados exige revisar o contrato Windows → OMV.
+- A versão testada no Mac ordena a galeria pela data sem hora e o editorial
+  pelo nome natural do original. A branch de saneamento passou a importar
+  `video.creation_time` e a ordenar ambas as listas por esse horário, com
+  fallback determinístico. Requer backup, migração, nova importação do mesmo
+  manifesto e validação real no Mac.
+- A versão testada no Mac não filtra assets já agrupados. A branch de
+  saneamento incluiu **Sem grupo/Com grupo** no editorial; falta validar no Mac.
+  Selecionar na galeria recarrega a página. Exibir grupos editoriais na galeria,
+  alterar nomes apenas na cópia
+  baixada e oferecer seleção em massa são melhorias futuras mencionadas pela
+  usuária, ainda sem implementação neste checkpoint.
+
 Revisão M11 no código: `assign_range` cobre `add` (preserva membros) e
 `replace` (remove membros fora do intervalo), inclusive ao mover assets entre
 grupos; os testes de persistência cobrem esses casos. Um grupo pode ficar

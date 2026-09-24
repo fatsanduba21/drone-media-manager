@@ -54,6 +54,7 @@ h2{font:normal 25px/1.2 Georgia,serif;margin:0}.hint{color:var(--muted);font-siz
 <p class="lead">Revise tomadas em sequência. Escolha um nome sugerido ou escreva o seu; a confirmação final fica sob seu controle.</p>
 <div class="toolbar">
 <div class="field"><label for="trip">Viagem</label><select id="trip"></select></div>
+<div class="field"><label for="asset-filter">Mostrar arquivos</label><select id="asset-filter"><option value="all">Todos</option><option value="untreated">Sem grupo</option><option value="treated">Com grupo</option></select></div>
 <button id="analyze" class="action" type="button">Sugerir fronteiras</button>
 <div id="count" class="meta"></div>
 </div>
@@ -111,7 +112,13 @@ function selectionBounds(){
 function clearCandidates(){
   nameRequest++;selectedPlaceId=null;$('name-candidates').replaceChildren();
 }
+function visibleAsset(asset){
+  if(!asset)return false;
+  const filter=$('asset-filter').value;
+  return filter==='all'||(filter==='untreated'?!asset.location_group_id:!!asset.location_group_id);
+}
 function chooseRange(ids){
+  if(ids.some(id=>!visibleAsset(state.assets.find(a=>a.id===id))))$('asset-filter').value='all';
   selected=ids;anchor=state.assets.findIndex(a=>a.id===ids[0]);$('name').value='';clearCandidates();render();
 }
 async function suggestNames(){
@@ -135,10 +142,12 @@ async function suggestNames(){
 }
 function render(){
   if(!state)return;
-  $('count').textContent=state.assets.length+' arquivos · '+state.groups.length+' grupos';
+  const visible=state.assets.filter(visibleAsset);
+  $('count').textContent=visible.length+' de '+state.assets.length+' arquivos · '+state.groups.length+' grupos';
   const groupNames=Object.fromEntries(state.groups.map(group=>[group.id,group.name]));
   const grid=$('grid');grid.replaceChildren();
   state.assets.forEach((asset,index)=>{
+    if(!visibleAsset(asset))return;
     const card=document.createElement('button');card.type='button';card.className='card'+(selected.includes(asset.id)?' selected':'');
     card.setAttribute('aria-pressed',selected.includes(asset.id));
     card.setAttribute('aria-label',(index+1)+' '+asset.filename);
@@ -151,11 +160,11 @@ function render(){
     const tag=document.createElement('span');tag.className='tag';tag.textContent=groupNames[asset.location_group_id]||'Sem grupo';
     body.append(filename,tag);card.append(frame,body);
     card.addEventListener('click',event=>{
-      if(event.shiftKey&&anchor!==null){const lo=Math.min(anchor,index),hi=Math.max(anchor,index);chooseRange(state.assets.slice(lo,hi+1).map(item=>item.id))}
+      if(event.shiftKey&&anchor!==null){const lo=Math.min(anchor,index),hi=Math.max(anchor,index),span=state.assets.slice(lo,hi+1);if(span.some(item=>!visibleAsset(item))){notice('O intervalo inclui arquivos ocultos. Use Todos para selecioná-lo.',true);return;}chooseRange(span.map(item=>item.id))}
       else{chooseRange([asset.id])}
     });grid.append(card);
   });
-  if(!state.assets.length){const empty=document.createElement('div');empty.className='empty';empty.textContent='Nenhum asset no catálogo desta viagem.';grid.append(empty)}
+  if(!visible.length){const empty=document.createElement('div');empty.className='empty';empty.textContent=state.assets.length?'Nenhum arquivo corresponde ao filtro.':'Nenhum asset no catálogo desta viagem.';grid.append(empty)}
   const bounds=selectionBounds();
   $('selection').textContent=bounds?selected.length+' arquivo(s) · '+String(state.assets.findIndex(a=>a.id===bounds.start_asset_id)+1).padStart(3,'0')+'–'+String(state.assets.findIndex(a=>a.id===bounds.end_asset_id)+1).padStart(3,'0'):'Nenhum arquivo selecionado';
   $('create').disabled=!bounds;$('suggest-names').disabled=!bounds;$('add').disabled=!bounds||!state.groups.length;$('replace').disabled=!bounds||!state.groups.length;$('rename').disabled=!state.groups.length;
@@ -203,6 +212,7 @@ async function createGroup(){
 }
 async function action(fn){try{notice('');await fn()}catch(error){notice(error.message,true)}}
 $('trip').onchange=()=>action(loadState);
+$('asset-filter').onchange=()=>{selected=[];anchor=null;clearCandidates();render();};
 $('create').onclick=()=>action(createGroup);
 $('name').addEventListener('input',()=>{selectedPlaceId=null;});
 $('suggest-names').onclick=()=>action(suggestNames);

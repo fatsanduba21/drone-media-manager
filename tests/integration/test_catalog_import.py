@@ -10,6 +10,7 @@ from alembic import command
 from pydantic import SecretStr
 from sqlalchemy import func, select
 
+from drone_media_manager.api.routes.catalog import _assets
 from drone_media_manager.catalog.importer import (
     ManifestError,
     import_manifest,
@@ -26,6 +27,8 @@ from drone_media_manager.db.models.catalog import (
 )
 from drone_media_manager.db.models.ingest import Trip
 from drone_media_manager.db.session import create_engine_from_settings, session_factory
+from drone_media_manager.grouping.models import LocationGroup
+from drone_media_manager.grouping.repository import ordered_assets
 
 
 def _asset(asset_id: str, classification: str = "FOTOS") -> dict[str, object]:
@@ -129,6 +132,48 @@ def test_first_import_and_second_import_are_idempotent(tmp_path: Path) -> None:
         assert session.scalar(select(func.count()).select_from(AssetFile)) == 3
         assert session.scalar(select(func.count()).select_from(ManifestImport)) == 2
         assert session.scalar(select(Trip.nas_rel_path)) == "journey"
+    engine.dispose()
+
+
+def test_reimport_backfills_capture_order_without_changing_groups(
+    tmp_path: Path,
+) -> None:
+    later = _asset("1" * 64, "YOUTUBE_16X9")
+    earlier = _asset("2" * 64, "YOUTUBE_16X9")
+    for asset, time in (
+        (later, "2026-09-14T12:00:00Z"),
+        (earlier, "2026-09-14T10:00:00Z"),
+    ):
+        asset["video"]["creation_time"] = time
+        asset["editorial"]["capture_date"] = "2026-09-14"
+        asset["editorial"]["capture_date_source"] = "mp4_creation_time"
+    root, manifest, engine = _setup(tmp_path, [later, earlier])
+    with session_factory(engine)() as session:
+        assert import_manifest(session, root, manifest).status == "IMPORTED"
+        trip = session.scalar(select(Trip))
+        assert trip is not None
+        rows = session.scalars(select(CatalogAsset)).all()
+        group = LocationGroup(trip_id=trip.id, name_final="Praia")
+        session.add(group)
+        session.flush()
+        rows[0].location_group_id = group.id
+        for row in rows:
+            row.capture_time = None  # Existing catalog before the new migration.
+        session.commit()
+        assert import_manifest(session, root, manifest).already_imported == 2
+        assert [asset.asset_id for asset in ordered_assets(session, trip.id)] == [
+            "2" * 64,
+            "1" * 64,
+        ]
+        assert [asset.asset_id for asset in _assets(session, trip)] == [
+            "2" * 64,
+            "1" * 64,
+        ]
+        assert rows[0].location_group_id == group.id
+        assert {row.capture_time for row in rows} == {
+            "2026-09-14T10:00:00+00:00",
+            "2026-09-14T12:00:00+00:00",
+        }
     engine.dispose()
 
 

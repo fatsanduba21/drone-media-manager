@@ -18,6 +18,7 @@ from drone_media_manager.config import ServerSettings
 from drone_media_manager.db.models.catalog import CatalogAsset, Derivative
 from drone_media_manager.db.models.ingest import Trip
 from drone_media_manager.derivatives.service import PROFILES
+from drone_media_manager.grouping.repository import ordered_assets
 
 _CACHE = "private, max-age=3600, must-revalidate"
 _RANGE = re.compile(r"bytes=(\d*)-(\d*)\Z")
@@ -57,18 +58,13 @@ def _assets(
     people: str | None = None,
     media_type: str | None = None,
 ) -> list[CatalogAsset]:
-    query = select(CatalogAsset).where(CatalogAsset.trip_id == trip.id)
-    if classification:
-        query = query.where(CatalogAsset.classification == classification.upper())
-    if media_type:
-        query = query.where(CatalogAsset.media_type == media_type.upper())
-    candidates = session.scalars(
-        query.order_by(CatalogAsset.capture_date, CatalogAsset.asset_id)
-    ).all()
+    candidates = ordered_assets(session, trip.id, include_missing=True)
     return [
         asset
         for asset in candidates
-        if _matches(asset.poi_final or asset.poi_suggested, poi)
+        if (not classification or asset.classification == classification.upper())
+        and (not media_type or asset.media_type == media_type.upper())
+        and _matches(asset.poi_final or asset.poi_suggested, poi)
         and _matches(asset.movement, movement)
         and _matches(asset.people, people)
     ]
@@ -84,7 +80,10 @@ def _asset(session: Session, asset_id: str) -> CatalogAsset:
 
 
 def _asset_payload(
-    session: Session, asset: CatalogAsset, settings: ServerSettings, user_id: str | None = None
+    session: Session,
+    asset: CatalogAsset,
+    settings: ServerSettings,
+    user_id: str | None = None,
 ) -> dict[str, object]:
     ready: set[str] = set()
     kinds = ("THUMBNAIL", "PROXY") if asset.media_type == "VIDEO" else ("THUMBNAIL",)
@@ -226,14 +225,25 @@ def catalog_router(
                 "trip": _trip_payload(session, trip),
                 "total": len(assets),
                 "assets": [
-                    _asset_payload(session, asset, settings, require_browser_identity(request).user_id) for asset in assets
+                    _asset_payload(
+                        session,
+                        asset,
+                        settings,
+                        require_browser_identity(request).user_id,
+                    )
+                    for asset in assets
                 ],
             }
 
     @router.get("/assets/{asset_id}")
     def asset_detail(asset_id: str, request: Request) -> dict[str, object]:
         with session_factory() as session:
-            return _asset_payload(session, _asset(session, asset_id), settings, require_browser_identity(request).user_id)
+            return _asset_payload(
+                session,
+                _asset(session, asset_id),
+                settings,
+                require_browser_identity(request).user_id,
+            )
 
     @router.get("/assets/{asset_id}/thumbnail", response_model=None)
     def thumbnail(asset_id: str, request: Request) -> Response:

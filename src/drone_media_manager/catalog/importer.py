@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -22,6 +23,17 @@ from drone_media_manager.db.models.ingest import Trip
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _SLUG = re.compile(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\Z")
 _VIDEO = {"YOUTUBE_16X9", "INSTAGRAM_9X16", "OUTROS_REVISAR"}
+
+
+def _capture_time(asset: dict[str, Any]) -> str | None:
+    value = (asset.get("video") or {}).get("creation_time")
+    if not isinstance(value, str):
+        return None
+    try:
+        captured = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return captured.astimezone(UTC).isoformat() if captured.tzinfo else None
 
 
 class ManifestError(ValueError):
@@ -387,6 +399,7 @@ def import_manifest(
                     display_height=video.get("display_height"),
                     rotation_degrees=video.get("rotation_degrees"),
                     capture_date=editorial.get("capture_date"),
+                    capture_time=_capture_time(asset),
                     capture_date_source=editorial.get("capture_date_source"),
                     poi_final=location.get("poi_final"),
                     poi_suggested=location.get("poi_suggested"),
@@ -397,6 +410,8 @@ def import_manifest(
                 session.add(existing)
                 session.flush()
             existing.verification_status = asset["output"]["verification_status"]
+            # Reimport fills this field for catalogs created before migration.
+            existing.capture_time = _capture_time(asset)
             for spec in specs:
                 old = old_files.get(spec.role)
                 if old is None:

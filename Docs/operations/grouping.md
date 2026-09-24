@@ -14,6 +14,15 @@ A página e a API editorial exigem HTTPS e a sessão autenticada da galeria, inc
 ## Revisar uma viagem
 
 - Escolha a viagem e clique em **Sugerir fronteiras**. A operação lê SRTs disponíveis e usa GPS, hora confiável e interrupções da sequência de nomes.
+- A folha de contato e a galeria usam o horário de captura dos vídeos quando
+  presente no manifesto; sem horário, usam data e nome como fallback. Após a
+  migração `0008_capture_time`, importe novamente o mesmo `MANIFESTO.json` para
+  preencher o horário dos assets já catalogados. A importação mantém grupos e
+  nomes confirmados. As sugestões anteriores à mudança de ordem são retiradas;
+  clique em **Sugerir fronteiras** para recriá-las.
+- Use **Mostrar arquivos → Sem grupo** para focar a triagem. Um intervalo que
+  atravessa arquivos ocultos exige voltar a **Todos**, evitando incluir
+  arquivos agrupados sem perceber.
 - Revise as sugestões na folha de contato. Clique no primeiro arquivo e use **Shift + clique** no último para selecionar um intervalo inclusivo.
 - Informe um nome e clique em **Criar grupo**. Na fase 3B, **Sugerir nomes próximos** oferece candidatos quando houver GPS e Google Places configurado; veja [nomes de Local / Grupo](location-names.md).
 - Para incluir outro lote no mesmo grupo, selecione o intervalo, escolha o grupo existente e clique em **Adicionar seleção ao grupo**. Os membros anteriores permanecem no grupo, mesmo quando os lotes não são adjacentes.

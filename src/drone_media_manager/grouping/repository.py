@@ -32,20 +32,33 @@ PARSER_VERSION = "srt-parser-v1"
 MAX_SRT_BYTES = 8 * 1024 * 1024
 
 
-def ordered_assets(session: Session, trip_id: str) -> list[CatalogAsset]:
-    """Return stable editorial order by natural original filename."""
-    rows = session.execute(
-        select(CatalogAsset, AssetFile)
-        .join(AssetFile, AssetFile.catalog_asset_id == CatalogAsset.id)
-        .where(CatalogAsset.trip_id == trip_id, AssetFile.role == "ORIGINAL")
-    ).all()
+def ordered_assets(
+    session: Session, trip_id: str, *, include_missing: bool = False
+) -> list[CatalogAsset]:
+    """Return capture order, falling back to date and natural filename."""
+    query = select(CatalogAsset, AssetFile)
+    if include_missing:
+        query = query.outerjoin(
+            AssetFile,
+            (AssetFile.catalog_asset_id == CatalogAsset.id)
+            & (AssetFile.role == "ORIGINAL"),
+        )
+    else:
+        query = query.join(
+            AssetFile, AssetFile.catalog_asset_id == CatalogAsset.id
+        ).where(AssetFile.role == "ORIGINAL")
+    rows = session.execute(query.where(CatalogAsset.trip_id == trip_id)).all()
     return [
         asset
         for asset, original in sorted(
             rows,
             key=lambda pair: (
-                natural_key(Path(pair[1].rel_path).name),
-                pair[1].rel_path.casefold(),
+                pair[0].capture_time
+                or (pair[0].capture_date or "9999-12-31") + "T00:00:00",
+                natural_key(
+                    Path(pair[1].rel_path).name if pair[1] else pair[0].asset_id
+                ),
+                pair[1].rel_path.casefold() if pair[1] else pair[0].asset_id,
             ),
         )
     ]
@@ -64,10 +77,11 @@ def _original_files(session: Session, trip_id: str) -> dict[str, dict[str, Asset
 
 
 def _timestamp(asset: CatalogAsset) -> datetime | None:
-    if not asset.capture_date or asset.capture_date_source in (None, "unknown"):
+    value = asset.capture_time or asset.capture_date
+    if not value or asset.capture_date_source in (None, "unknown"):
         return None
     try:
-        return datetime.fromisoformat(asset.capture_date)
+        return datetime.fromisoformat(value)
     except ValueError:
         return None
 

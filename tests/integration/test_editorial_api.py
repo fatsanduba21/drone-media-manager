@@ -96,6 +96,8 @@ def test_legacy_gallery_and_range_update(tmp_path: Path) -> None:
     page = client.get("/editorial/")
     assert page.status_code == 200
     assert "Shift + clique" in page.text
+    assert '<select id="asset-filter">' in page.text
+    assert '<option value="untreated">Sem grupo</option>' in page.text
     state = client.get(f"/api/editorial/trips/{trip_id}")
     assert state.status_code == 200
     assets = state.json()["assets"]

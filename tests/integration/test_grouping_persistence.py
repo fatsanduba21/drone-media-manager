@@ -210,6 +210,7 @@ def test_migration_preserves_existing_catalog_assets(tmp_path: Path) -> None:
         assert asset is not None
         assert asset.asset_id == "a" * 64
         assert asset.location_group_id is None
+        assert asset.capture_time is None
     engine.dispose()
 
     command.downgrade(config, "0004_derivatives")
@@ -227,5 +228,71 @@ def test_migration_preserves_existing_catalog_assets(tmp_path: Path) -> None:
         assert (
             connection.exec_driver_sql("SELECT COUNT(*) FROM derivatives").scalar_one()
             == 1
+        )
+    engine.dispose()
+
+
+def test_capture_time_migration_keeps_groups_and_retires_old_suggestions(
+    tmp_path: Path,
+) -> None:
+    settings = ServerSettings(
+        database_path=tmp_path / "db.sqlite3",
+        omv_root=tmp_path / "omv",
+        worker_bootstrap_token=SecretStr("x" * 32),
+    )
+    config = alembic_config(settings)
+    command.upgrade(config, "0007_location_names")
+    engine = create_engine_from_settings(settings)
+    with engine.begin() as connection:
+        connection.execute(
+            text("""
+            INSERT INTO trips (id, name, slug, nas_rel_path, created_at, updated_at)
+            VALUES ('trip-1', 'Viagem', 'viagem', 'viagem', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """)
+        )
+        connection.execute(
+            text("""
+            INSERT INTO location_groups (id, trip_id, name_final, name_source, name_locked,
+                created_at, updated_at)
+            VALUES ('group-1', 'trip-1', 'Praia', 'HUMAN', 1,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """)
+        )
+        connection.execute(
+            text("""
+            INSERT INTO catalog_assets (id, asset_id, trip_id, location_group_id, media_type,
+                classification, verification_status, created_at, updated_at)
+            VALUES ('asset-1', :asset_id, 'trip-1', 'group-1', 'VIDEO', 'YOUTUBE_16X9',
+                'VERIFIED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """),
+            {"asset_id": "a" * 64},
+        )
+        connection.execute(
+            text("""
+            INSERT INTO grouping_suggestions (id, trip_id, start_asset_id, end_asset_id,
+                algorithm_version, evidence_json, created_at)
+            VALUES ('suggestion-1', 'trip-1', 'asset-1', 'asset-1', 'grouping-v1', '{}',
+                CURRENT_TIMESTAMP)
+        """)
+        )
+    engine.dispose()
+    command.upgrade(config, "head")
+    engine = create_engine_from_settings(settings)
+    with engine.connect() as connection:
+        assert (
+            connection.execute(
+                text(
+                    "SELECT location_group_id FROM catalog_assets WHERE id = 'asset-1'"
+                )
+            ).scalar_one()
+            == "group-1"
+        )
+        assert (
+            connection.execute(
+                text(
+                    "SELECT superseded_at FROM grouping_suggestions WHERE id = 'suggestion-1'"
+                )
+            ).scalar_one()
+            is not None
         )
     engine.dispose()
