@@ -270,13 +270,11 @@ def _download_link(
     session: Session, settings: ServerSettings, asset: CatalogAsset
 ) -> str:
     try:
-        resolve_original(session, settings, asset)
+        original = resolve_original(session, settings, asset)
     except HTTPException:
         return '<span class="original-missing">Original indisponível</span>'
     url = f"/api/catalog/assets/{quote(asset.asset_id, safe='')}/download"
-    return (
-        f'<a class="original-link" href="{escape(url, quote=True)}">Baixar original</a>'
-    )
+    return f'<a class="original-link" href="{escape(url, quote=True)}" download="{escape(original.filename, quote=True)}">Baixar original · {escape(original.filename)}</a>'
 
 
 def _batch_panel(

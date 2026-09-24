@@ -22,6 +22,7 @@ from drone_media_manager.db.models.auth import User, UserSession
 from drone_media_manager.db.models.catalog import AssetFile, CatalogAsset, Derivative
 from drone_media_manager.db.models.ingest import Trip
 from drone_media_manager.db.session import create_engine_from_settings, session_factory
+from drone_media_manager.grouping.models import LocationGroup
 
 A, B, C, OTHER = ("a" * 64, "b" * 64, "c" * 64, "d" * 64)
 BYTES = {
@@ -289,3 +290,68 @@ def test_unicode_only_name_keeps_extension_in_ascii_fallback() -> None:
     header = _content_disposition("空撮.mp4")
     assert 'filename="original.mp4"' in header
     assert "filename*=UTF-8''%E7%A9%BA%E6%92%AE.mp4" in header
+
+
+def test_confirmed_group_names_only_downloaded_copy_and_preflight(
+    downloads: tuple[TestClient, sessionmaker[Session], ServerSettings],
+) -> None:
+    client, sessions, settings = downloads
+    with sessions() as session:
+        trip = session.query(Trip).filter_by(slug="viagem").one()
+        group = LocationGroup(trip_id=trip.id, name_final="Baía dos Porcos")
+        session.add(group)
+        session.flush()
+        for asset_id in (A, B):
+            asset = session.scalar(
+                select(CatalogAsset).where(CatalogAsset.asset_id == asset_id)
+            )
+            assert asset is not None
+            asset.location_group_id = group.id
+            asset.capture_date = "2026-09-24"
+            asset.movement = "desconhecido" if asset_id == A else None
+            asset.people = "desconhecido" if asset_id == A else None
+        session.commit()
+    _select(client, sessions, A)
+    _select(client, sessions, B)
+    preflight = client.get("/api/catalog/trips/viagem/selected-downloads").json()
+    names = [item["filename"] for item in preflight["files"]]
+    assert names == [
+        "2026-09-24_Baía dos Porcos_16x9_aaaaaaaa.mp4",
+        "2026-09-24_Baía dos Porcos_16x9_bbbbbbbb.mp4",
+    ]
+    for asset_id, filename in zip((A, B), names, strict=True):
+        response = client.get(f"/api/catalog/assets/{asset_id}/download")
+        assert response.content == BYTES[asset_id]
+        assert (
+            hashlib.sha256(response.content).hexdigest()
+            == hashlib.sha256(BYTES[asset_id]).hexdigest()
+        )
+        assert "filename*=UTF-8''" in response.headers["content-disposition"]
+        assert (
+            filename.replace("í", "i").replace("á", "a")
+            in response.headers["content-disposition"]
+        )
+    original = settings.omv_root / "viagem/poi-a/YOUTUBE_16x9/Céu.mp4"
+    assert original.read_bytes() == BYTES[A]
+    assert "Céu.mp4" in original.name
+
+
+def test_download_name_sanitizes_confirmed_group_without_losing_id(
+    downloads: tuple[TestClient, sessionmaker[Session], ServerSettings],
+) -> None:
+    client, sessions, _ = downloads
+    with sessions() as session:
+        trip = session.query(Trip).filter_by(slug="viagem").one()
+        group = LocationGroup(trip_id=trip.id, name_final="CON:/\\*?" + "X" * 180)
+        session.add(group)
+        session.flush()
+        asset = session.scalar(select(CatalogAsset).where(CatalogAsset.asset_id == A))
+        assert asset is not None
+        asset.location_group_id = group.id
+        asset.capture_date = "2026-09-24"
+        session.commit()
+    response = client.get(f"/api/catalog/assets/{A}/download")
+    header = response.headers["content-disposition"]
+    assert response.status_code == 200
+    assert "aaaaaaaa.mp4" in header
+    assert "\\" not in header and "\r" not in header and "\n" not in header

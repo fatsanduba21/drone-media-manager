@@ -49,6 +49,20 @@ A galeria e o catálogo mostram o grupo confirmado separadamente do POI inicial.
 Use o filtro **Grupo confirmado** para ver um grupo ou **Sem grupo**; assets sem
 GPS continuam visíveis. O ID de grupo pertence sempre à viagem exibida.
 
+## Seleção e downloads
+
+O botão **Selecionar** atualiza a seleção sem recarregar a página quando há
+JavaScript; o formulário POST permanece disponível sem JavaScript. Use
+**Selecionar exibidos** ou **Desmarcar exibidos** para agir somente nos cards
+visíveis pelos filtros atuais. Seleções ocultas permanecem intactas. A lista
+de downloads é atualizada após a seleção, e os links individuais continuam
+disponíveis.
+
+Com grupo confirmado, somente a cópia baixada recebe nome editorial com data,
+grupo, movimento/pessoas quando conhecidos, formato e ID curto. O nome aparece
+no preflight e nos links, enquanto o original no OMV e seu hash permanecem
+iguais. Sem grupo, o download usa o basename físico seguro.
+
 ## Phase 2D successor
 
 The 2C procedure above records the earlier read-only acceptance. Phase 2D adds HTTPS-only login, persistent selection and separate ORIGINAL downloads. Use [the Phase 2D Mac runbook](phase-2d.md) for the migration, verified SQLite backup, TLS setup, initial user and Chrome acceptance. The 2C HTTP catalog commands above are historical and return 426 after the 2D application is loaded.

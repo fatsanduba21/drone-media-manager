@@ -16,6 +16,7 @@ from drone_media_manager.catalog.importer import ManifestError, resolve_omv_path
 from drone_media_manager.config import ServerSettings
 from drone_media_manager.db.models.catalog import AssetFile, CatalogAsset
 from drone_media_manager.db.models.ingest import Trip
+from drone_media_manager.grouping.models import LocationGroup
 
 _BAD_NAME = set('/\\<>:"|?*')
 _RESERVED = {
@@ -57,6 +58,33 @@ def _unavailable() -> HTTPException:
 
 
 def _editorial_name(session: Session, asset: CatalogAsset, original: AssetFile) -> str:
+    if asset.location_group_id:
+        group = session.get(LocationGroup, asset.location_group_id)
+        if group is not None and group.trip_id == asset.trip_id:
+            formats = {
+                "YOUTUBE_16X9": "16x9",
+                "INSTAGRAM_9X16": "9x16",
+                "OUTROS_REVISAR": "outros",
+                "FOTOS": "foto",
+            }
+            parts = [
+                (asset.capture_date or "sem-data")[:10],
+                group.name_final[:48],
+                *(
+                    [asset.movement[:24]]
+                    if asset.movement and asset.movement.casefold() != "desconhecido"
+                    else []
+                ),
+                *(
+                    [asset.people[:24]]
+                    if asset.people and asset.people.casefold() != "desconhecido"
+                    else []
+                ),
+                formats[asset.classification],
+                asset.asset_id[:8],
+            ]
+            extension = PurePosixPath(original.rel_path).suffix.lower()
+            return safe_filename(f"{'_'.join(parts)}{extension}", asset.asset_id)
     name = safe_filename(PurePosixPath(original.rel_path).name, asset.asset_id)
     names = session.execute(
         select(CatalogAsset.asset_id, AssetFile.rel_path)
