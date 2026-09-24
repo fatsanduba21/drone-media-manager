@@ -26,6 +26,7 @@ Confirm and monitor on the Mac with `uv run dmm-server ingest confirm SNAPSHOT_I
 - Mac server: [the server runbook](Docs/operations/mac-server.md)
 - Windows worker: [the worker runbook](Docs/operations/windows-worker.md)
 - Verification and safe fixtures: [testing](Docs/testing.md)
+- Phase 3A grouping and gallery: [grouping runbook](Docs/operations/grouping.md)
 
 The service is LAN-oriented. Keep the server bound to loopback until TLS,
 authentication, and a restricted LAN firewall rule are configured for a real

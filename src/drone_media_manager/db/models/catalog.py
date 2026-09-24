@@ -36,12 +36,16 @@ class CatalogAsset(Base):
             name="ck_catalog_assets_classification",
         ),
         Index("ix_catalog_assets_trip_id", "trip_id"),
+        Index("ix_catalog_assets_location_group_id", "location_group_id"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     asset_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     trip_id: Mapped[str] = mapped_column(
         ForeignKey("trips.id", ondelete="RESTRICT"), nullable=False
+    )
+    location_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("location_groups.id", ondelete="SET NULL")
     )
     media_type: Mapped[str] = mapped_column(String(16), nullable=False)
     classification: Mapped[str] = mapped_column(String(32), nullable=False)

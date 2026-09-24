@@ -44,3 +44,6 @@ strict = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"drone_media_manager.api" = ["static/*.html"]

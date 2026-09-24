@@ -6,7 +6,8 @@ from alembic import context
 from alembic.util.exc import CommandError
 
 import drone_media_manager.db.models.catalog
-import drone_media_manager.db.models.core  # noqa: F401
+import drone_media_manager.db.models.core
+import drone_media_manager.grouping.models  # noqa: F401
 from drone_media_manager.config import ServerSettings
 from drone_media_manager.db.base import Base
 from drone_media_manager.db.session import create_engine_from_settings

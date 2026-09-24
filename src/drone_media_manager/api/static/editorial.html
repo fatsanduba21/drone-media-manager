@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Triagem editorial · Drone Media Manager</title>
+<style>
+:root{color-scheme:dark;--ink:#e8e4d7;--muted:#9b9b95;--bg:#141716;--panel:#202523;--line:#39413c;--accent:#d5eb75;--warm:#d9b89a}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "Trebuchet MS",sans-serif}
+button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.45}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+header{border-bottom:1px solid var(--line);padding:20px clamp(18px,4vw,58px);display:flex;align-items:center;justify-content:space-between;gap:20px}
+.mark{display:flex;align-items:center;gap:14px}.mark span{width:30px;height:30px;border:2px solid var(--accent);border-radius:50%;display:block;position:relative}
+.mark span:before,.mark span:after{content:"";position:absolute;background:var(--accent);left:50%;top:50%;transform:translate(-50%,-50%)}
+.mark span:before{width:36px;height:2px}.mark span:after{width:2px;height:36px}
+.brand{font:700 12px/1.2 "Trebuchet MS",sans-serif;letter-spacing:.19em;text-transform:uppercase}.phase{color:var(--muted);font-size:12px;letter-spacing:.12em;text-transform:uppercase}
+main{max-width:1660px;margin:auto;padding:36px clamp(18px,4vw,58px) 80px}
+h1{font:normal clamp(36px,4vw,64px)/1.04 Georgia,serif;letter-spacing:-.045em;margin:0 0 10px}
+.lead{color:var(--muted);margin:0 0 30px;max-width:670px}
+.toolbar{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:24px}.field{display:flex;flex-direction:column;gap:6px}
+label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.12em}
+select,input{border:1px solid var(--line);border-radius:3px;background:#252b27;color:var(--ink);padding:11px 12px;min-height:44px}
+#trip{min-width:min(360px,80vw)}.action{border:1px solid var(--line);border-radius:3px;background:#303a32;color:var(--ink);min-height:44px;padding:10px 16px;font-weight:700}
+.action:hover{border-color:var(--accent)}.primary{background:var(--accent);color:#192017;border-color:var(--accent)}
+.meta{color:var(--muted);font-size:13px;margin-left:auto;padding-bottom:12px}
+.workspace{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:28px;align-items:start}
+.sheet-heading{display:flex;justify-content:space-between;align-items:baseline;border-top:1px solid var(--line);padding:15px 0}
+h2{font:normal 25px/1.2 Georgia,serif;margin:0}.hint{color:var(--muted);font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:10px}
+.card{border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:0;text-align:left;min-width:0;transition:border-color .15s,transform .15s}
+.card:hover{border-color:#8c9e82;transform:translateY(-2px)}.card.selected{border:2px solid var(--accent);box-shadow:0 0 0 2px #d5eb7540}
+.frame{display:block;aspect-ratio:4/3;background:#303633;position:relative;overflow:hidden}
+.frame img{width:100%;height:100%;object-fit:cover;display:block}.no-image{display:grid;place-items:center;height:100%;color:#9b9b95;font:italic 15px Georgia,serif}
+.number{position:absolute;left:8px;top:8px;padding:2px 6px;background:#121713d9;color:var(--accent);font:700 11px monospace}
+.card-body{padding:9px 10px 10px}.filename{font:12px/1.2 monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{display:block;margin-top:7px;font-size:11px;color:var(--warm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.side{position:sticky;top:20px;display:grid;gap:12px}.panel{background:var(--panel);border:1px solid var(--line);padding:18px}
+.panel h2{font-size:22px;margin-bottom:12px}.panel p{color:var(--muted);font-size:13px;margin:0 0 14px}
+.selection{color:var(--accent);font:700 13px monospace;margin:4px 0 13px}
+.stack{display:grid;gap:9px}.stack .action{width:100%}.panel input,.panel select{width:100%}
+.suggestion,.group-row{border-top:1px solid var(--line);padding:12px 0}.suggestion strong,.group-row strong{display:block;font-size:13px}
+.suggestion small,.group-row small{display:block;color:var(--muted);margin:4px 0 8px}.inline{display:flex;gap:6px}.inline button{flex:1;min-height:34px;padding:6px;font-size:12px}
+.empty{border:1px dashed var(--line);color:var(--muted);padding:35px;text-align:center;grid-column:1/-1}
+#status{min-height:22px;margin:0 0 14px;color:var(--warm)}#status.error{color:#ff9d87}
+@media(max-width:950px){.workspace{grid-template-columns:1fr}.side{position:static;grid-template-columns:repeat(auto-fit,minmax(270px,1fr))}}
+</style>
+</head>
+<body>
+<header><div class="mark"><span aria-hidden="true"></span><div class="brand">Drone<br>Media Manager</div></div><div class="phase">Editorial / Fase 3A</div></header>
+<main>
+<h1>Organize a viagem<br>por contexto.</h1>
+<p class="lead">Revise tomadas em sequência. As fronteiras automáticas são sugestões; os grupos confirmados ficam sob seu controle.</p>
+<div class="toolbar">
+<div class="field"><label for="trip">Viagem</label><select id="trip"></select></div>
+<button id="analyze" class="action" type="button">Sugerir fronteiras</button>
+<div id="count" class="meta"></div>
+</div>
+<div id="status" role="status" aria-live="polite"></div>
+<div class="workspace">
+<section aria-label="Grade de arquivos">
+<div class="sheet-heading"><h2>Folha de contato</h2><span class="hint">Clique no início; Shift + clique no fim</span></div>
+<div id="grid" class="grid"></div>
+</section>
+<aside class="side">
+<div class="panel">
+<h2>Intervalo</h2>
+<p>Selecione uma sequência contínua para criar um grupo ou ajustar as fronteiras de um grupo existente.</p>
+<div id="selection" class="selection">Nenhum arquivo selecionado</div>
+<div class="stack">
+<div class="field"><label for="name">Nome do grupo</label><input id="name" maxlength="255" placeholder="Ex.: Praia do Bode"></div>
+<button id="create" class="action primary" type="button">Criar grupo</button>
+<div class="field"><label for="group">Grupo existente</label><select id="group"></select></div>
+<button id="replace" class="action" type="button">Aplicar intervalo ao grupo</button>
+</div>
+</div>
+<div class="panel"><h2>Sugestões</h2><p>Use uma sugestão ou selecione novos limites antes de confirmar.</p><div id="suggestions"></div></div>
+<div class="panel"><h2>Grupos confirmados</h2><div id="groups"></div></div>
+</aside>
+</div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let state = null, selected = [], anchor = null;
+function notice(message, error=false){ $('status').textContent=message; $('status').classList.toggle('error',error); }
+async function api(url, options={}){
+  const response=await fetch(url,{...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});
+  if(!response.ok){let data={};try{data=await response.json()}catch{};throw new Error(data.error?.code||'Falha na operação');}
+  return response.json();
+}
+function range(start,end){
+  const a=state.assets.findIndex(item=>item.id===start), b=state.assets.findIndex(item=>item.id===end);
+  if(a<0||b<0)return [];
+  return state.assets.slice(Math.min(a,b),Math.max(a,b)+1).map(item=>item.id);
+}
+function selectionBounds(){
+  if(!selected.length)return null;
+  const positions=selected.map(id=>state.assets.findIndex(item=>item.id===id)).sort((a,b)=>a-b);
+  if(positions.some((value,index)=>index&&value!==positions[index-1]+1))return null;
+  return {start_asset_id:state.assets[positions[0]].id,end_asset_id:state.assets[positions.at(-1)].id};
+}
+function render(){
+  if(!state)return;
+  $('count').textContent=state.assets.length+' arquivos · '+state.groups.length+' grupos';
+  const groupNames=Object.fromEntries(state.groups.map(group=>[group.id,group.name]));
+  const grid=$('grid');grid.replaceChildren();
+  state.assets.forEach((asset,index)=>{
+    const card=document.createElement('button');card.type='button';card.className='card'+(selected.includes(asset.id)?' selected':'');
+    card.setAttribute('aria-pressed',selected.includes(asset.id));
+    card.setAttribute('aria-label',(index+1)+' '+asset.filename);
+    const frame=document.createElement('span');frame.className='frame';
+    if(asset.thumbnail_url){const img=document.createElement('img');img.src=asset.thumbnail_url;img.alt='';img.loading='lazy';frame.append(img)}
+    else{const fallback=document.createElement('span');fallback.className='no-image';fallback.textContent='Thumbnail indisponível';frame.append(fallback)}
+    const number=document.createElement('span');number.className='number';number.textContent=String(index+1).padStart(3,'0');frame.append(number);
+    const body=document.createElement('span');body.className='card-body';
+    const filename=document.createElement('span');filename.className='filename';filename.textContent=asset.filename;
+    const tag=document.createElement('span');tag.className='tag';tag.textContent=groupNames[asset.location_group_id]||'Sem grupo';
+    body.append(filename,tag);card.append(frame,body);
+    card.addEventListener('click',event=>{
+      if(event.shiftKey&&anchor!==null){const lo=Math.min(anchor,index),hi=Math.max(anchor,index);selected=state.assets.slice(lo,hi+1).map(item=>item.id)}
+      else{anchor=index;selected=[asset.id]}
+      render();
+    });grid.append(card);
+  });
+  if(!state.assets.length){const empty=document.createElement('div');empty.className='empty';empty.textContent='Nenhum asset no catálogo desta viagem.';grid.append(empty)}
+  const bounds=selectionBounds();
+  $('selection').textContent=bounds?selected.length+' arquivo(s) · '+String(state.assets.findIndex(a=>a.id===bounds.start_asset_id)+1).padStart(3,'0')+'–'+String(state.assets.findIndex(a=>a.id===bounds.end_asset_id)+1).padStart(3,'0'):'Nenhum arquivo selecionado';
+  $('create').disabled=!bounds;$('replace').disabled=!bounds||!state.groups.length;
+  const groupSelect=$('group'),old=groupSelect.value;groupSelect.replaceChildren();
+  for(const group of state.groups){const option=document.createElement('option');option.value=group.id;option.textContent=group.name;groupSelect.append(option)}
+  if(state.groups.some(group=>group.id===old))groupSelect.value=old;
+  const suggestions=$('suggestions');suggestions.replaceChildren();
+  let visibleSuggestions=0;
+  for(const suggestion of state.suggestions){
+    const ids=range(suggestion.start_asset_id,suggestion.end_asset_id);
+    if(!ids.length||ids.every(id=>state.assets.find(asset=>asset.id===id)?.location_group_id))continue;
+    visibleSuggestions++;
+    const row=document.createElement('div');row.className='suggestion';
+    const title=document.createElement('strong');title.textContent=ids.length+' arquivo(s)';
+    const evidence=document.createElement('small');evidence.textContent=Object.entries(suggestion.evidence).map(([key,value])=>key==='gps_distance_m'?'Mudança de GPS: '+Math.round(value)+' m':key==='time_gap_s'?'Pausa: '+Math.round(value/60)+' min':key==='sequence_gap'?'Sequência interrompida':key).join(' · ')||'Sequência contínua';
+    const actions=document.createElement('div');actions.className='inline';
+    const choose=document.createElement('button');choose.className='action';choose.textContent='Selecionar';
+    choose.onclick=()=>{selected=ids;anchor=state.assets.findIndex(a=>a.id===ids[0]);render();};
+    const confirm=document.createElement('button');confirm.className='action';confirm.textContent='Confirmar';
+    confirm.onclick=()=>action(async()=>{selected=ids;await createGroup();});
+    actions.append(choose,confirm);row.append(title,evidence,actions);suggestions.append(row);
+  }
+  if(!visibleSuggestions)suggestions.textContent='Nenhuma sugestão pendente.';
+  const groups=$('groups');groups.replaceChildren();
+  for(const group of state.groups){
+    const count=state.assets.filter(a=>a.location_group_id===group.id).length;
+    const row=document.createElement('div');row.className='group-row';
+    const title=document.createElement('strong');title.textContent=group.name;
+    const detail=document.createElement('small');detail.textContent=count+' arquivo(s)';
+    const select=document.createElement('button');select.className='action';select.textContent='Selecionar arquivos';
+    select.onclick=()=>{selected=state.assets.filter(a=>a.location_group_id===group.id).map(a=>a.id);anchor=state.assets.findIndex(a=>a.id===selected[0]);$('group').value=group.id;render();};
+    row.append(title,detail,select);groups.append(row);
+  }
+  if(!state.groups.length)groups.textContent='Nenhum grupo confirmado.';
+}
+async function loadState(){state=await api('/api/editorial/trips/'+encodeURIComponent($('trip').value));selected=[];anchor=null;render();}
+async function createGroup(){
+  const bounds=selectionBounds();if(!bounds)return;
+  const name=$('name').value.trim()||'Grupo '+(state.groups.length+1);
+  await api('/api/editorial/trips/'+encodeURIComponent(state.trip.id)+'/groups',{method:'POST',body:JSON.stringify({...bounds,name})});
+  notice('Grupo confirmado.');$('name').value='';await loadState();
+}
+async function action(fn){try{notice('');await fn()}catch(error){notice(error.message,true)}}
+$('trip').onchange=()=>action(loadState);
+$('create').onclick=()=>action(createGroup);
+$('replace').onclick=()=>action(async()=>{
+  const bounds=selectionBounds();if(!bounds)return;
+  const id=$('group').value;
+  await api('/api/editorial/trips/'+encodeURIComponent(state.trip.id)+'/groups/'+encodeURIComponent(id),{method:'PUT',body:JSON.stringify({...bounds,name:$('name').value.trim()||null})});
+  notice('Fronteiras atualizadas.');$('name').value='';await loadState();
+});
+$('analyze').onclick=()=>action(async()=>{
+  $('analyze').disabled=true;
+  try{await api('/api/editorial/trips/'+encodeURIComponent($('trip').value)+'/analyze',{method:'POST'});await loadState();notice('Sugestões atualizadas. Grupos confirmados preservados.')}
+  finally{$('analyze').disabled=false}
+});
+action(async()=>{
+  const trips=await api('/api/editorial/trips');
+  const select=$('trip');select.replaceChildren();
+  for(const trip of trips){const option=document.createElement('option');option.value=trip.id;option.textContent=trip.name;select.append(option)}
+  if(trips.length)await loadState();else notice('Importe uma viagem no catálogo para começar.');
+});
+</script>
+</body>
+</html>
