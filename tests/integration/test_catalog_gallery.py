@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -14,8 +15,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from drone_media_manager.api.app import create_app
+from drone_media_manager.auth.passwords import hash_password
 from drone_media_manager.cli.server import alembic_config
 from drone_media_manager.config import ServerSettings
+from drone_media_manager.db.models.auth import User
 from drone_media_manager.db.models.catalog import CatalogAsset, Derivative
 from drone_media_manager.db.models.ingest import Trip
 from drone_media_manager.db.session import create_engine_from_settings, session_factory
@@ -97,8 +100,18 @@ def catalog(
                         size_bytes=len(payload),
                     )
                 )
+        session.add(User(username="editor", password_hash=hash_password("correct horse battery staple")))
         session.commit()
-    with TestClient(create_app(settings, sessions)) as client:
+    with TestClient(create_app(settings, sessions), base_url="https://testserver") as client:
+        page = client.get("/login")
+        token = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
+        assert token is not None
+        response = client.post(
+            "/login",
+            data={"username": "editor", "password": "correct horse battery staple", "csrf_token": token[1]},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
         yield client, sessions, settings
     engine.dispose()
 

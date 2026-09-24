@@ -5,7 +5,7 @@ A fase 3A usa o catálogo da 2A e os thumbnails da 2B. A análise SRT gera **sug
 ## Preparar no Mac
 
 1. Atualize o checkout e execute `uv run dmm-server backup` antes da migração. Guarde o caminho e SHA-256 exibidos.
-2. Execute `uv run dmm-server migrate` para aplicar `0005_grouping`.
+2. Execute `uv run dmm-server migrate` para aplicar `0005_grouping` e a revisão de união `0006_merge_2d_3a`. Bancos já migrados na fase 2D mantêm usuários e seleções.
 3. Confirme que a viagem está importada no catálogo. Se faltarem thumbnails, execute `uv run dmm-derivatives generate --trip SLUG`.
 4. Inicie o servidor com `uv run dmm-server run` e abra `http://127.0.0.1:8000/editorial/` no navegador do Mac.
 

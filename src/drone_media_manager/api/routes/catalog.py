@@ -11,7 +11,9 @@ from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from drone_media_manager.api.auth import require_browser_identity
 from drone_media_manager.catalog.importer import ManifestError, resolve_omv_path
+from drone_media_manager.catalog.selection import is_selected
 from drone_media_manager.config import ServerSettings
 from drone_media_manager.db.models.catalog import CatalogAsset, Derivative
 from drone_media_manager.db.models.ingest import Trip
@@ -82,7 +84,7 @@ def _asset(session: Session, asset_id: str) -> CatalogAsset:
 
 
 def _asset_payload(
-    session: Session, asset: CatalogAsset, settings: ServerSettings
+    session: Session, asset: CatalogAsset, settings: ServerSettings, user_id: str | None = None
 ) -> dict[str, object]:
     ready: set[str] = set()
     kinds = ("THUMBNAIL", "PROXY") if asset.media_type == "VIDEO" else ("THUMBNAIL",)
@@ -108,6 +110,7 @@ def _asset_payload(
         "rotation_degrees": asset.rotation_degrees,
         "capture_date": asset.capture_date,
         "verification_status": asset.verification_status,
+        "selected": is_selected(session, user_id, asset.id) if user_id else False,
         "thumbnail_url": f"{base}/thumbnail" if "THUMBNAIL" in ready else None,
         "proxy_url": (
             f"{base}/proxy"
@@ -201,6 +204,7 @@ def catalog_router(
     @router.get("/trips/{slug}/assets")
     def trip_assets(
         slug: str,
+        request: Request,
         classification: str | None = None,
         poi: str | None = None,
         movement: str | None = None,
@@ -222,14 +226,14 @@ def catalog_router(
                 "trip": _trip_payload(session, trip),
                 "total": len(assets),
                 "assets": [
-                    _asset_payload(session, asset, settings) for asset in assets
+                    _asset_payload(session, asset, settings, require_browser_identity(request).user_id) for asset in assets
                 ],
             }
 
     @router.get("/assets/{asset_id}")
-    def asset_detail(asset_id: str) -> dict[str, object]:
+    def asset_detail(asset_id: str, request: Request) -> dict[str, object]:
         with session_factory() as session:
-            return _asset_payload(session, _asset(session, asset_id), settings)
+            return _asset_payload(session, _asset(session, asset_id), settings, require_browser_identity(request).user_id)
 
     @router.get("/assets/{asset_id}/thumbnail", response_model=None)
     def thumbnail(asset_id: str, request: Request) -> Response:

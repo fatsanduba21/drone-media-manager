@@ -39,3 +39,7 @@ or invalid derivatives return 404 or 416.
 The API accepts only asset_id for media lookup. It never serves an original
 from the OMV and only serves registered local derivatives with READY status.
 Thumbnails use a private one-hour browser cache with an ETag.
+
+## Phase 2D successor
+
+The 2C procedure above records the earlier read-only acceptance. Phase 2D adds HTTPS-only login, persistent selection and separate ORIGINAL downloads. Use [the Phase 2D Mac runbook](phase-2d.md) for the migration, verified SQLite backup, TLS setup, initial user and Chrome acceptance. The 2C HTTP catalog commands above are historical and return 426 after the 2D application is loaded.

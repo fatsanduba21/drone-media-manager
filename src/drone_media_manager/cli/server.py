@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -14,19 +15,27 @@ from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
+from sqlalchemy import select
 from sqlalchemy.engine import Engine
 
 from drone_media_manager.api.app import create_app
+from drone_media_manager.auth.passwords import hash_password
 from drone_media_manager.config import ServerSettings, get_server_settings
 from drone_media_manager.db.backup import BackupError, backup_sqlite
+from drone_media_manager.db.models.auth import User
 from drone_media_manager.db.session import create_engine_from_settings, session_factory
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dmm-server")
-    parser.add_argument("command", choices=("run", "migrate", "ingest", "backup"))
-    parser.add_argument("ingest_command", nargs="?", choices=("confirm", "status"))
+    parser.add_argument(
+        "command", choices=("run", "migrate", "ingest", "user", "backup")
+    )
+    parser.add_argument(
+        "ingest_command", nargs="?", choices=("confirm", "status", "create")
+    )
     parser.add_argument("ingest_id", nargs="?")
+    parser.add_argument("--username")
     parser.add_argument("--trip")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--revision", type=int, default=2)
@@ -102,6 +111,7 @@ def main(
     argv: Sequence[str] | None = None,
     *,
     settings_loader: Callable[[], ServerSettings] = get_server_settings,
+    password_reader: Callable[[str], str] = getpass.getpass,
     admin_client_factory: Callable[
         [ServerSettings], AdminIngestClient
     ] = AdminIngestClient,
@@ -119,6 +129,33 @@ def main(
             return 4
         print(f"backup={report.path} bytes={report.size_bytes} sha256={report.sha256}")
         return 0
+    if args.command == "user":
+        if args.ingest_command != "create" or not args.username:
+            return 2
+        username = args.username.strip().casefold()
+        if not username or len(username) > 255:
+            return 2
+        password = password_reader("Senha: ")
+        confirmation = password_reader("Repita a senha: ")
+        if password != confirmation or len(password) < 12:
+            print("Senha inválida ou confirmação diferente")
+            return 2
+        engine = create_engine_from_settings(settings)
+        try:
+            verify_database_revision(engine, alembic_config(settings))
+            sessions = session_factory(engine)
+            with sessions() as session:
+                if session.scalar(select(User).where(User.username == username)):
+                    print("Usuário já existe")
+                    return 2
+                session.add(
+                    User(username=username, password_hash=hash_password(password))
+                )
+                session.commit()
+            print("Usuário criado")
+            return 0
+        finally:
+            engine.dispose()
     if args.command == "ingest":
         client = admin_client_factory(settings)
         if args.ingest_command == "confirm" and args.ingest_id and args.trip:

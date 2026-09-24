@@ -6,17 +6,21 @@ from collections.abc import Callable
 from html import escape
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from drone_media_manager.api.auth import require_browser_identity
 from drone_media_manager.api.routes.catalog import (
     _asset,
     _asset_payload,
     _assets,
     _trip,
 )
+from drone_media_manager.api.routes.downloads import selected_originals
+from drone_media_manager.catalog.downloads import resolve_original
+from drone_media_manager.catalog.selection import selected_count
 from drone_media_manager.config import ServerSettings
 from drone_media_manager.db.models.catalog import CatalogAsset
 from drone_media_manager.db.models.ingest import Trip
@@ -56,19 +60,39 @@ dt{color:var(--muted);font-size:10px;letter-spacing:.12em;text-transform:upperca
 .player-frame.portrait{max-width:490px;margin:auto}.player-frame video,.player-frame img{display:block;max-width:100%;max-height:72vh;object-fit:contain}
 .player-frame video{width:100%;height:auto}.detail aside{border-top:1px solid var(--accent);padding-top:20px}.detail h1{font-size:clamp(32px,4vw,56px)}
 .facts{grid-template-columns:1fr 1fr;gap:20px;margin:35px 0}.detail .back{display:inline-block;margin-top:25px;border-bottom:1px solid var(--accent);padding-bottom:4px}
+.selection-bar{margin:0 0 20px;padding:15px 18px;border:1px solid #665238;background:#28241d;color:var(--accent);font-weight:700}
+.selection-form{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-top:1px solid var(--line)}
+.selection-form button{padding:8px 12px;border:1px solid var(--accent);background:transparent;color:var(--accent);font:700 13px 'Trebuchet MS',sans-serif;cursor:pointer}
+.selection-form button:hover{background:var(--accent);color:#191713}
+.selected-status{color:var(--accent);font-size:12px;font-weight:700}
+.detail .selection-form{padding:0 0 18px;border-top:0}.download-panel{margin:0 0 28px;padding:18px;border:1px solid var(--line);background:var(--panel)}
+.download-panel strong{display:block;margin-bottom:10px;color:var(--accent)}
+.download-panel p{margin:8px 0;color:var(--muted);font-size:13px}
+.download-panel button{padding:10px 16px;border:1px solid var(--accent);background:var(--accent);color:#191713;font-weight:700;cursor:pointer}
+.download-list{margin:14px 0 0;padding-left:19px}.download-list li{margin:5px 0}
+.original-link,.original-missing{display:inline-block;margin:8px 16px 15px;color:var(--accent);font-size:13px}
+.original-missing{color:var(--muted)}
+.logout-form button{padding:8px 12px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer}
 @media(max-width:900px){.filters{grid-template-columns:repeat(2,minmax(0,1fr))}.detail{grid-template-columns:1fr}.player-frame.portrait{margin:0}}
 @media(max-width:550px){header{align-items:start}.edition{display:none}.filters{grid-template-columns:1fr 1fr;padding:14px}.filters button{grid-column:1/-1}.thumb{height:210px}}
 """
 
 
-def _page(title: str, content: str) -> HTMLResponse:
+def _page(title: str, content: str, csrf_token: str) -> HTMLResponse:
+    logout_form = (
+        '<form class="logout-form" method="post" action="/logout">'
+        f'<input type="hidden" name="csrf_token" value="{escape(csrf_token, quote=True)}">'
+        '<button type="submit">Sair</button></form>'
+    )
     return HTMLResponse(
         '<!doctype html><html lang="pt-BR"><head>'
         '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
         f"<title>{escape(title)} · Atlas de voo</title><style>{_STYLE}</style></head>"
         '<body><div class="shell"><header><a class="brand" href="/gallery">'
         'ATLAS <span>DE VOO</span></a><span class="edition">Catálogo editorial / 01</span>'
-        f"</header><main>{content}</main></div></body></html>"
+        + logout_form
+        + f"</header><main>{content}</main></div></body></html>",
+        headers={"Cache-Control": "private, no-store"},
     )
 
 
@@ -107,10 +131,92 @@ def _select(name: str, label: str, options: set[str], selected: str | None) -> s
     )
 
 
-def _card(
-    session: Session, asset: CatalogAsset, slug: str, settings: ServerSettings
+def _selection_form(
+    slug: str, asset_id: str, csrf_token: str, selected: bool, *, detail: bool = False
 ) -> str:
-    payload = _asset_payload(session, asset, settings)
+    next_value = '<input type="hidden" name="next" value="detail">' if detail else ""
+    return (
+        f'<form class="selection-form" method="post" action="/gallery/{quote(slug, safe="")}/assets/{quote(asset_id, safe="")}/selection">'
+        f'<input type="hidden" name="csrf_token" value="{escape(csrf_token, quote=True)}">'
+        f'<input type="hidden" name="selected" value="{"false" if selected else "true"}">'
+        + next_value
+        + ('<span class="selected-status">Selecionado</span>' if selected else "")
+        + f'<button type="submit">{"Desmarcar" if selected else "Selecionar"}</button></form>'
+    )
+
+
+def _size_label(size: int) -> str:
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    if size < 1024 * 1024 * 1024:
+        return f"{size / (1024 * 1024):.1f} MB"
+    return f"{size / (1024 * 1024 * 1024):.1f} GB"
+
+
+def _download_link(
+    session: Session, settings: ServerSettings, asset: CatalogAsset
+) -> str:
+    try:
+        resolve_original(session, settings, asset)
+    except HTTPException:
+        return '<span class="original-missing">Original indisponível</span>'
+    url = f"/api/catalog/assets/{quote(asset.asset_id, safe='')}/download"
+    return (
+        f'<a class="original-link" href="{escape(url, quote=True)}">Baixar original</a>'
+    )
+
+
+def _batch_panel(
+    session: Session, settings: ServerSettings, user_id: str, trip: Trip
+) -> str:
+    try:
+        originals = selected_originals(session, settings, user_id, trip.id)
+    except HTTPException as error:
+        code = error.detail.get("code") if isinstance(error.detail, dict) else None
+        if code == "selection_empty":
+            return '<div class="download-panel">Selecione assets para baixar os originais.</div>'
+        return '<div class="download-panel">Original indisponível. Revise a seleção antes de baixar.</div>'
+    total = sum(original.size_bytes for _, original in originals)
+    links = "".join(
+        '<li><a class="download-item" data-download-url="'
+        + f"/api/catalog/assets/{quote(asset.asset_id, safe='')}/download"
+        + '" href="'
+        + f"/api/catalog/assets/{quote(asset.asset_id, safe='')}/download"
+        + '">Baixar '
+        + escape(original.filename)
+        + "</a></li>"
+        for asset, original in originals
+    )
+    return (
+        '<div class="download-panel">'
+        f"<strong>{len(originals)} originais · {_size_label(total)}</strong>"
+        '<button id="download-selected" type="button">Baixar selecionados</button>'
+        "<p>O Chrome pode pedir permissão para baixar vários arquivos. Confira os downloads; se algum for bloqueado, use os links abaixo.</p>"
+        f'<ul class="download-list">{links}</ul>'
+        '<p id="download-status" role="status"></p></div>'
+        "<script>"
+        'document.getElementById("download-selected").addEventListener("click",function(){'
+        'const links=document.querySelectorAll("[data-download-url]");'
+        'for(const link of links){const a=document.createElement("a");'
+        'a.href=link.getAttribute("data-download-url");a.download="";'
+        "document.body.appendChild(a);a.click();a.remove();}"
+        'document.getElementById("download-status").textContent='
+        '"Downloads solicitados. Confirme no Chrome; os links individuais ficam disponíveis acima.";'
+        "});</script>"
+    )
+
+
+def _card(
+    session: Session,
+    asset: CatalogAsset,
+    slug: str,
+    settings: ServerSettings,
+    user_id: str,
+    csrf_token: str,
+) -> str:
+    payload = _asset_payload(session, asset, settings, user_id)
     asset_url = (
         f"/gallery/{quote(slug, safe='')}/assets/{quote(asset.asset_id, safe='')}"
     )
@@ -123,7 +229,7 @@ def _card(
     kind = "Vídeo" if asset.media_type == "VIDEO" else "Foto"
     title = payload["poi"] or kind
     return (
-        f'<a class="card" href="{asset_url}"><div class="thumb">{preview}</div>'
+        f'<div class="card"><a href="{asset_url}"><div class="thumb">{preview}</div>'
         '<div class="card-body">'
         f'<span class="badge">{escape(asset.classification)}</span>'
         f"<h3>{_label(title)}</h3><dl>"
@@ -132,6 +238,9 @@ def _card(
         + _field("Movimento", asset.movement)
         + _field("Pessoas", asset.people)
         + "</dl></div></a>"
+        + _selection_form(slug, asset.asset_id, csrf_token, bool(payload["selected"]))
+        + _download_link(session, settings, asset)
+        + "</div>"
     )
 
 
@@ -145,7 +254,8 @@ def gallery_router(
         return RedirectResponse("/gallery")
 
     @router.get("/gallery", response_model=None)
-    def trips_page() -> HTMLResponse:
+    def trips_page(request: Request) -> HTMLResponse:
+        identity = require_browser_identity(request)
         with session_factory() as session:
             rows = session.execute(
                 select(Trip, func.count(CatalogAsset.id))
@@ -173,11 +283,12 @@ def gallery_router(
                 else '<div class="empty">Nenhuma viagem no catálogo.</div>'
             )
         )
-        return _page("Viagens", content)
+        return _page("Viagens", content, identity.csrf_token)
 
     @router.get("/gallery/{slug}", response_model=None)
     def assets_page(
         slug: str,
+        request: Request,
         classification: str | None = None,
         poi: str | None = None,
         movement: str | None = None,
@@ -228,7 +339,20 @@ def gallery_router(
                     media_type,
                 )
             )
-            cards = "".join(_card(session, asset, slug, settings) for asset in shown)
+            identity = require_browser_identity(request)
+            count = selected_count(session, identity.user_id, trip.id)
+            cards = "".join(
+                _card(
+                    session,
+                    asset,
+                    slug,
+                    settings,
+                    identity.user_id,
+                    identity.csrf_token,
+                )
+                for asset in shown
+            )
+            download_panel = _batch_panel(session, settings, identity.user_id, trip)
         content = (
             '<nav class="crumb"><a href="/gallery">Viagens</a> / '
             + escape(trip.name)
@@ -239,6 +363,8 @@ def gallery_router(
             f'<form class="filters" method="get" action="/gallery/{quote(slug, safe="")}">'
             + fields
             + '<button type="submit">Filtrar</button></form>'
+            + f'<div class="selection-bar">{count} selecionado{"s" if count != 1 else ""}</div>'
+            + download_panel
             + '<div class="section-head"><h2>Galeria</h2>'
             + f'<span class="count">{len(shown)} de {len(all_assets)} assets</span></div>'
             + (
@@ -247,16 +373,18 @@ def gallery_router(
                 else '<div class="empty">Nenhum asset corresponde aos filtros.</div>'
             )
         )
-        return _page(trip.name, content)
+        return _page(trip.name, content, identity.csrf_token)
 
     @router.get("/gallery/{slug}/assets/{asset_id}", response_model=None)
-    def asset_page(slug: str, asset_id: str) -> HTMLResponse:
+    def asset_page(slug: str, asset_id: str, request: Request) -> HTMLResponse:
         with session_factory() as session:
             trip = _trip(session, slug)
             asset = _asset(session, asset_id)
             if asset.trip_id != trip.id:
                 raise HTTPException(status_code=404, detail={"code": "asset_not_found"})
-            payload = _asset_payload(session, asset, settings)
+            identity = require_browser_identity(request)
+            payload = _asset_payload(session, asset, settings, identity.user_id)
+            download_link = _download_link(session, settings, asset)
         thumb = payload["thumbnail_url"]
         proxy = payload["proxy_url"]
         portrait = (
@@ -294,9 +422,17 @@ def gallery_router(
             + _field("Tipo", asset.media_type)
             + _field("Captura", asset.capture_date)
             + "</dl>"
+            + _selection_form(
+                slug,
+                asset.asset_id,
+                identity.csrf_token,
+                bool(payload["selected"]),
+                detail=True,
+            )
+            + download_link
             + f'<a class="back" href="/gallery/{quote(slug, safe="")}">← Voltar à galeria</a>'
             + "</aside></div>"
         )
-        return _page(str(payload["poi"] or "Detalhe"), content)
+        return _page(str(payload["poi"] or "Detalhe"), content, identity.csrf_token)
 
     return router
