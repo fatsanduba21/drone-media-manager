@@ -46,11 +46,12 @@ h2{font:normal 25px/1.2 Georgia,serif;margin:0}.hint{color:var(--muted);font-siz
 .empty{border:1px dashed var(--line);color:var(--muted);padding:35px;text-align:center;grid-column:1/-1}
 #status{min-height:22px;margin:0 0 14px;color:var(--warm)}#status.error{color:#ff9d87}
 #movement-panel{margin-top:24px}#movement-panel pre{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);font-size:12px}.movement-fields{display:flex;gap:12px;flex-wrap:wrap;align-items:end}.movement-fields .field{flex:1;min-width:120px}.movement-fields input,.movement-fields select{width:100%}.segment-row{padding:12px 0;border-top:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap}.segment-row span{flex:1}.segment-row button{min-height:36px}details{margin-top:14px}summary{cursor:pointer}#movement-job{color:var(--accent)}
+#scores-panel{margin-bottom:28px}#scores-panel>summary{font:25px Georgia,serif}#scores-panel .toolbar{margin-top:18px}.score-weights{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}.score-weights input{width:105px}.score-table-wrap{overflow-x:auto}.score-table{border-collapse:collapse;width:100%;font-size:13px}.score-table th,.score-table td{padding:12px 9px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}.score-table th{color:var(--muted);font-size:11px}.score-table caption{text-align:left;color:var(--warm);padding:8px}.score-table .rank-score{font:24px Georgia,serif;color:var(--accent)}.score-table a{color:var(--accent)}.score-table small{display:block;color:var(--muted)}.score-table pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:400px}.score-table button{font-size:12px;padding:5px 8px;min-height:34px}#score-status{color:var(--warm)}
 @media(max-width:950px){.workspace{grid-template-columns:1fr}.side{position:static;grid-template-columns:repeat(auto-fit,minmax(270px,1fr))}}
 </style>
 </head>
 <body>
-<header><div class="mark"><span aria-hidden="true"></span><div class="brand">Drone<br>Media Manager</div></div><div class="phase">Editorial / Fase 3D</div></header>
+<header><div class="mark"><span aria-hidden="true"></span><div class="brand">Drone<br>Media Manager</div></div><div class="phase">Editorial / Fase 3E</div></header>
 <main>
 <h1>Organize a viagem<br>por contexto.</h1>
 <p class="lead">Revise tomadas em sequência. Escolha um nome sugerido ou escreva o seu; a confirmação final fica sob seu controle.</p>
@@ -63,6 +64,19 @@ h2{font:normal 25px/1.2 Georgia,serif;margin:0}.hint{color:var(--muted);font-siz
 <div id="count" class="meta"></div>
 </div>
 <div id="status" role="status" aria-live="polite"></div>
+<details id="scores-panel" class="panel" open>
+<summary>Ranking de tomadas</summary>
+<p>Notas de 0 a 100 para orientar a revisão. Qualidade visual estimada por um thumbnail; semelhança não comprova duplicação. Nenhum arquivo é descartado.</p>
+<div class="toolbar">
+<div class="field"><label for="score-profile">Perfil</label><select id="score-profile"><option value="instagram">Instagram</option><option value="youtube">YouTube</option></select></div>
+<div class="field"><label for="score-group">Grupo no ranking</label><select id="score-group"><option value="">Todos</option></select></div>
+<button id="calculate-scores" class="action primary" type="button" disabled>Calcular ranking</button>
+<button id="refresh-scores" class="action" type="button">Atualizar resultado</button>
+</div>
+<details><summary>Editar pesos do perfil</summary><p>Pesos relativos, normalizados pelos componentes disponíveis. Zero desativa um componente. Pessoas favorece presença; duração favorece takes de até 10 s ou mais. Composição ainda não é avaliada.</p><div id="score-weights" class="score-weights"></div><button id="save-score-profile" class="action" type="button">Salvar pesos</button></details>
+<p id="score-status" role="status" aria-live="polite">Escolha uma viagem para começar.</p>
+<div class="score-table-wrap"><table class="score-table"><caption>Ordenado por score editorial · “—” significa sem evidência. Compare também a cobertura dos pesos.</caption><thead><tr><th scope="col">Tomada / contexto</th><th scope="col">Editorial</th><th scope="col">Técnica</th><th scope="col">Movimento</th><th scope="col">Composição</th><th scope="col">Unicidade</th><th scope="col">Pessoas</th><th scope="col">Duração</th><th scope="col">Takes semelhantes</th></tr></thead><tbody id="score-results"></tbody></table></div>
+</details>
 <div class="workspace">
 <section aria-label="Grade de arquivos">
 <div class="sheet-heading"><h2>Folha de contato</h2><span class="hint">Clique no início; Shift + clique no fim</span></div>
@@ -265,7 +279,7 @@ function render(){
   }
   if(!state.groups.length)groups.textContent='Nenhum grupo confirmado.';
 }
-async function loadState(){const trip=$('trip').value;const result=await api('/api/editorial/trips/'+encodeURIComponent(trip));if(trip!==$('trip').value)return;state=result;selected=[];anchor=null;clearCandidates();render();populateBatchEditor();await loadMovement();}
+async function loadState(){const trip=$('trip').value;const result=await api('/api/editorial/trips/'+encodeURIComponent(trip));if(trip!==$('trip').value)return;state=result;selected=[];anchor=null;clearCandidates();render();populateBatchEditor();await loadMovement();await loadScores();}
 async function createGroup(){
   const bounds=selectionBounds();if(!bounds)return;
   const name=$('name').value.trim();if(!name){notice('Digite ou escolha um nome antes de confirmar.',true);$('name').focus();return;}
@@ -342,7 +356,7 @@ async function loadMovement(){
 async function movementAction(fn){
   if(movementBusy||!movementState)return;
   movementBusy=true;const id=movementState.asset_id;
-  try{await fn(id);if(selected.length===1&&selected[0]===id)await loadMovement();const asset=state.assets.find(a=>a.id===id);if(asset&&movementState?.asset_id===id){asset.movement_final=movementState.final;render();}notice('Revisão salva.');}
+  try{await fn(id);if(selected.length===1&&selected[0]===id)await loadMovement();const asset=state.assets.find(a=>a.id===id);if(asset&&movementState?.asset_id===id){asset.movement_final=movementState.final;render();}await loadScores();notice('Revisão salva.');}
   catch(error){notice(error.message,true)}finally{movementBusy=false;}
 }
 $('movement-save').onclick=()=>movementAction(id=>api(movementUrl(id),{method:'PATCH',body:JSON.stringify({value:$('movement-value').value})}));
@@ -372,7 +386,73 @@ $('analyze-movement').onclick=()=>action(async()=>{
     $('movement-job').textContent='Movimentos atualizados. Correções preservadas.';
   }finally{$('analyze-movement').disabled=false;}
 });
+const scoreLabels={technical:'Técnica',motion:'Movimento',people:'Pessoas',duration:'Duração',composition:'Composição',uniqueness:'Unicidade'};
+let scoreProfiles={},scoreState=null,scoreRequest=0,scoreBusy=false;
+function renderWeights(){
+  $('score-weights').replaceChildren();
+  for(const [key,label] of Object.entries(scoreLabels)){
+    const field=document.createElement('div');field.className='field';
+    const title=document.createElement('label');title.htmlFor='weight-'+key;title.textContent=label;
+    const input=document.createElement('input');input.id='weight-'+key;input.type='number';input.min=0;input.max=100;input.step='any';input.required=true;input.value=scoreProfiles[$('score-profile').value][key];
+    field.append(title,input);$('score-weights').append(field);
+  }
+}
+function renderScores(){
+  const target=$('score-results');target.replaceChildren();
+  if(!scoreState||!state)return;
+  const names=Object.fromEntries(state.groups.map(g=>[g.id,g.name]));
+  const rows=scoreState.results||[],byId=Object.fromEntries(rows.map(row=>[row.asset_id,row]));
+  for(const row of rows){
+    if($('score-group').value&&row.context.location_group_id!==$('score-group').value)continue;
+    const tr=document.createElement('tr'),first=document.createElement('td');
+    const preview=document.createElement('a');preview.textContent=row.filename;preview.href='/gallery/'+encodeURIComponent(state.trip.slug)+'/assets/'+encodeURIComponent(row.public_asset_id);preview.target='_blank';preview.rel='noopener';
+    const context=document.createElement('small');context.textContent=(names[row.context.location_group_id]||'Sem grupo')+' · '+(row.context.movement||'Sem movimento')+' · '+(row.context.subject||'Sem assunto');
+    const evidence=document.createElement('details'),summary=document.createElement('summary'),pre=document.createElement('pre');summary.textContent='Evidências e pesos';pre.textContent=JSON.stringify({versao:scoreState.algorithm_version,pesos:scoreState.weights,...row.evidence},null,2);evidence.append(summary,pre);first.append(preview,context,evidence);tr.append(first);
+    for(const key of ['editorial','technical','motion','composition','uniqueness','people','duration']){
+      const td=document.createElement('td');td.textContent=row[key+'_score']??'—';
+      if(key==='editorial'){td.className='rank-score';const small=document.createElement('small');small.textContent=Math.round(row.coverage*100)+'% dos pesos';td.append(small);}tr.append(td);
+    }
+    const peers=document.createElement('td');
+    for(const peer of row.similar_takes){const other=byId[peer.asset_id];if(!other)continue;const button=document.createElement('button');button.className='action';button.type='button';button.textContent=other.filename+' · '+(other.editorial_score??'—');button.onclick=()=>{chooseRange([peer.asset_id]);$('movement-panel').scrollIntoView({behavior:'smooth'});};peers.append(button);}
+    if(!row.similar_takes.length)peers.textContent='Sem candidato';tr.append(peers);target.append(tr);
+  }
+}
+async function loadScores(){
+  const request=++scoreRequest;scoreState=null;$('score-results').replaceChildren();
+  if(!state)return;
+  const trip=state.trip.id,profile=$('score-profile').value;
+  $('score-status').textContent='Carregando ranking…';
+  const data=await api('/api/editorial/trips/'+encodeURIComponent(trip)+'/scores?profile='+profile);
+  if(request!==scoreRequest||state.trip.id!==trip||$('score-profile').value!==profile)return;
+  scoreState=data;const previous=$('score-group').value;$('score-group').replaceChildren(new Option('Todos',''),...state.groups.map(g=>new Option(g.name,g.id)));$('score-group').value=state.groups.some(g=>g.id===previous)?previous:'';
+  $('calculate-scores').disabled=scoreBusy;
+  const labels={NOT_ANALYZED:'Ainda sem análise. Calcule o ranking.',PENDING:'Análise aguardando execução. Atualize o resultado em instantes.',RUNNING:'Analisando: '+Math.round((data.progress||0)*100)+'%. Atualize o resultado em instantes.',FAILED:'A análise falhou. Tente calcular novamente.',INTERRUPTED:'Análise interrompida. Calcule novamente.'};
+  $('score-status').textContent=data.stale?'Resultado desatualizado: classificação, mídia catalogada ou pesos mudaram. Calcule novamente.':data.status==='COMPLETE'?'Ranking atualizado · '+data.results.length+' tomadas · '+new Date(data.finished_at).toLocaleString('pt-BR'):labels[data.status]||data.status;
+  renderScores();
+}
+async function saveScoreWeights(){
+  const weights={};for(const key of Object.keys(scoreLabels)){const input=$('weight-'+key);if(!input.reportValidity())throw new Error('Informe pesos entre 0 e 100.');weights[key]=Number(input.value);}
+  if(!Object.values(weights).some(value=>value>0))throw new Error('Ao menos um peso deve ser maior que zero.');
+  const profile=$('score-profile').value;
+  if(Object.keys(weights).some(key=>weights[key]!==scoreProfiles[profile][key]))scoreProfiles[profile]=await api('/api/editorial/score-profiles/'+profile,{method:'PUT',body:JSON.stringify({weights})});
+}
+$('score-profile').onchange=()=>{renderWeights();action(loadScores);};
+$('score-group').onchange=renderScores;
+$('refresh-scores').onclick=()=>action(loadScores);
+$('save-score-profile').onclick=()=>action(async()=>{await saveScoreWeights();await loadScores();notice('Pesos salvos. Recalcule para aplicá-los.');});
+$('calculate-scores').onclick=()=>action(async()=>{
+  if(!state||scoreBusy)return;scoreBusy=true;$('calculate-scores').disabled=true;$('score-profile').disabled=true;$('save-score-profile').disabled=true;
+  const trip=state.trip.id,profile=$('score-profile').value;
+  try{
+    await saveScoreWeights();
+    const job=await api('/api/editorial/trips/'+encodeURIComponent(trip)+'/scores',{method:'POST',body:JSON.stringify({profile})});
+    let result;
+    do{result=await api('/api/editorial/score-jobs/'+encodeURIComponent(job.id));if(state.trip.id!==trip)return;$('score-status').textContent='Calculando ranking: '+Math.round(result.progress*100)+'%';if(['PENDING','RUNNING'].includes(result.status))await new Promise(resolve=>setTimeout(resolve,1000));}while(['PENDING','RUNNING'].includes(result.status));
+    await loadScores();
+  }finally{scoreBusy=false;$('calculate-scores').disabled=!state;$('score-profile').disabled=false;$('save-score-profile').disabled=false;}
+});
 action(async()=>{
+  scoreProfiles=await api('/api/editorial/score-profiles');renderWeights();
   const trips=await api('/api/editorial/trips');
   const select=$('trip');select.replaceChildren();
   for(const trip of trips){const option=document.createElement('option');option.value=trip.id;option.textContent=trip.name;select.append(option)}

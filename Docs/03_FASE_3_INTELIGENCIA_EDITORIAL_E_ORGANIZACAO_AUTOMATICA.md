@@ -930,6 +930,11 @@ A visão física pode ser materializada apenas na exportação.
 
 # 12. Fase 3E — Scoring e redundância
 
+Implementação v1: ranking em `/editorial/`, perfis Instagram/YouTube editáveis,
+componentes disponíveis, evidências e histórico em jobs `CALCULATE_SCORE`.
+Composição permanece indisponível; avaliação visual usa um thumbnail local.
+Operação, fórmulas e limites: [Scoring e redundância](operations/scoring.md).
+
 ## Objetivo
 
 Priorizar tomadas boas e reduzir tempo assistindo takes equivalentes.
