@@ -10,6 +10,18 @@
 
 **Spec:** `Docs/FASE_3B_CHECKPOINT_2026-09-24.md`, seção “Regressão real com noronha-teste”; contrato atual em `Docs/architecture/STORAGE_CONTRACTS.md`.
 
+**Estado em 25/09/2026:** as cinco tarefas estão implementadas e verificadas
+localmente (319 testes aprovados, 3 ignorados; Ruff, mypy e formatação dos
+arquivos envolvidos aprovados). A usuária confirmou seleção no navegador,
+backup/atualização no Mac, PLAN/APPLY com outra viagem, SHA-256 do download e
+persistência após reinício, e aceitou explicitamente a Fase 3B. A falha de rede
+também foi testada e ocorreu como esperado. Selecionar e Desmarcar individualmente
+sem JavaScript foram confirmados como funcionando no navegador. A reação visual
+à falha de CSRF continua sem validação manual.
+Os checkboxes abaixo preservam o roteiro original, incluindo passos históricos
+de TDD; não são um retrato atualizado da implementação. Registro de aceite:
+[checkpoint](../../FASE_3B_CHECKPOINT_2026-09-24.md#confirmação-da-usuária-e-aceite-25092026).
+
 ## Estado de partida e limites
 
 - Base: branch `chore/pre-phase-3c-codebase-consolidation`, commit `67de548`. A ordenação temporal e o filtro editorial já passaram no Mac após backup e migração.

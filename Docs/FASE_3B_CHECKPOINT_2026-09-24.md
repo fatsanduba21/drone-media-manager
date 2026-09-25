@@ -4,7 +4,7 @@
 
 **Base:** `main` em `fb3258b`
 
-**Estado:** implementada e liberada para uso; aceite funcional completo antes da 3C ainda pendente.
+**Estado:** **PHASE 3B — ACCEPTED**, por aceite explícito da usuária em 25/09/2026.
 
 ## Aceite
 
@@ -14,7 +14,7 @@
 
 O procedimento está em [operations/location-names.md](operations/location-names.md). A melhoria da sequência de uso na interface fica para uma revisão futura, conforme decisão da usuária.
 
-## Gate de aceite ainda aberto
+## Histórico do gate de aceite (24/09/2026)
 
 O teste real acima comprovou a consulta de candidatos, mas não documenta
 persistência após reinício nem a matriz completa do
@@ -22,8 +22,9 @@ persistência após reinício nem a matriz completa do
 grupos vazios e movimentação entre grupos (`add`/`replace`), SRTs reais dos
 drones usados, grupo sem GPS, indisponibilidade do Places e ausência de chave,
 nomes com caracteres portugueses e ausência de alteração dos originais.
-Executar essa matriz no Mac/OMV e registrar evidência antes de mudar o estado
-para **PHASE 3B — ACCEPTED**.
+Essas eram as pendências registradas em 24/09. O aceite posterior e os testes
+confirmados pela usuária estão registrados abaixo; o aceite não equivale a
+evidência individual de execução de cada cenário desta matriz.
 
 ## Regressão real com `noronha-teste` (24/09/2026)
 
@@ -44,7 +45,7 @@ Resultados informados pela usuária nesta sessão:
   do editorial funcionaram. Ainda faltam evidências dos demais itens da matriz
   3B, inclusive persistência após reinício.
 
-Achados de uso real a priorizar separadamente do aceite funcional:
+Achados de uso real em 24/09, antes das melhorias implementadas abaixo:
 
 - O organizador usa `desconhecido` como valor padrão de movimento e pessoas e
   incorpora ambos ao nome físico. O nome de grupo confirmado vive no catálogo;
@@ -75,12 +76,36 @@ e a ausência de alteração de bytes dos originais têm testes de integração.
 
 Verificação local após revisão: 319 testes aprovados, 3 ignorados; Ruff e mypy
 aprovados. A sintaxe do JavaScript foi verificada com Node. O teste de interação
-no navegador local foi bloqueado pela política de URL do navegador. Permanecem
+no navegador local foi bloqueado pela política de URL do navegador. Naquela sessão, ficaram
 pendentes o backup do SQLite no Mac, a atualização do checkout, a matriz manual
 com viagem de teste distinta de `noronha-teste`, comparação SHA-256 do download
 real com o manifesto e persistência após reinício. A branch foi publicada no
 `origin` em `4d0c742` para revisão. Estes resultados não alteram o estado de
 aceite da Fase 3B.
+
+## Confirmação da usuária e aceite (25/09/2026)
+
+- Seleção na galeria testada no navegador. O relato inicial não especifica
+  cobertura individual de desmarcação, seleção em massa ou troca de usuário.
+- Backup e atualização no Mac, além de PLAN/APPLY com outra viagem de teste,
+  confirmados como testados.
+- Comparação SHA-256 do download real e persistência após reinício confirmadas
+  como testadas.
+- Aceite completo da Fase 3B confirmado explicitamente pela usuária.
+- Falha de rede na seleção testada no navegador; a usuária confirmou que o
+  comportamento ocorreu como esperado.
+- Selecionar e Desmarcar individualmente, com JavaScript desabilitado,
+  confirmados como funcionando pela usuária após o teste no navegador.
+
+Falha de CSRF na interface permanece sem validação manual registrada. Esse
+cenário de robustez não foi declarado testado pelo aceite da 3B. A rejeição de
+CSRF tem cobertura automatizada; a reação visual ao erro ainda não foi
+confirmada no navegador.
+
+Na revisão local de 25/09, a suíte completa passou com 319 testes aprovados e
+3 ignorados; Ruff, mypy e a formatação dos 12 arquivos envolvidos no plano
+também passaram. Os resultados reais acima são relatos da usuária, sem logs
+ou valores de hash anexados nesta sessão. Este registro não inicia a Fase 3C.
 
 ## Preparação da Fase 3C
 

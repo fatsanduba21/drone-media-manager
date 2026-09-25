@@ -25,7 +25,7 @@ Decisões:
 - O Mac é o plano de catálogo e inteligência editorial.
 - O worker distribuído (`dmm-worker` + snapshots/jobs + `00_INBOX_ORIGINALS`) não é o fluxo oficial e não deve ditar prioridades.
 - A Fase 2E está **ACEITA**: o teste ponta a ponta foi executado manualmente. Automatização adicional é melhoria operacional.
-- A Fase 3B está implementada/liberada, mas ainda precisa de aceite funcional antes da 3C.
+- A Fase 3B está **ACEITA**, por confirmação explícita da usuária em 25/09/2026; evidências e limites estão no [checkpoint](FASE_3B_CHECKPOINT_2026-09-24.md#confirmação-da-usuária-e-aceite-25092026).
 
 ## 3. Reclassificação dos achados
 
@@ -242,7 +242,7 @@ Isso é especialmente importante depois de consolidar a Fase 1 na `main`.
 - [ ] 2E = ACCEPTED.
 - [ ] 3A permanece aceita.
 - [ ] 3B testada com material real.
-- [ ] 3B = ACCEPTED.
+- [x] 3B = ACCEPTED (aceite da usuária em 25/09/2026).
 - [ ] bugs da 3B que afetem contratos da 3C resolvidos.
 
 ## 6. Ordem recomendada
