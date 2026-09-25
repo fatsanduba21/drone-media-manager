@@ -8,6 +8,7 @@ from alembic.util.exc import CommandError
 import drone_media_manager.db.models.auth
 import drone_media_manager.db.models.catalog
 import drone_media_manager.db.models.core
+import drone_media_manager.editorial.models
 import drone_media_manager.grouping.models
 import drone_media_manager.movement.models  # noqa: F401
 from drone_media_manager.config import ServerSettings

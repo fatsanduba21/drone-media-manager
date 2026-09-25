@@ -23,6 +23,8 @@ from drone_media_manager.catalog.importer import resolve_omv_path
 from drone_media_manager.config import ServerSettings
 from drone_media_manager.db.models.catalog import AssetFile, CatalogAsset, Derivative
 from drone_media_manager.db.models.ingest import Trip
+from drone_media_manager.editorial.models import EditorialField, EditorialTag
+from drone_media_manager.editorial.repository import update_assets
 from drone_media_manager.grouping.models import GroupingSuggestion, LocationGroup
 from drone_media_manager.grouping.names import GooglePlacesProvider, NameLookup
 from drone_media_manager.grouping.repository import (
@@ -48,6 +50,17 @@ class GroupUpdateRequest(RangeRequest):
 
 class GroupNameRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
+
+
+class BatchEditorialRequest(BaseModel):
+    asset_ids: list[str] = Field(min_length=1, max_length=200)
+    group_id: str | None = None
+    movement: str | None = Field(default=None, max_length=64)
+    people: Literal["YES", "NO", "UNKNOWN"] | None = None
+    subject: str | None = Field(default=None, max_length=255)
+    people_label: str | None = Field(default=None, max_length=255)
+    add_tags: list[str] = Field(default_factory=list, max_length=30)
+    remove_tags: list[str] = Field(default_factory=list, max_length=30)
 
 
 def _group_data(group: LocationGroup) -> dict[str, object]:
@@ -117,6 +130,19 @@ def editorial_router(
                     )
                 )
             }
+            fields = {
+                (row.catalog_asset_id, row.kind): row.value
+                for row in session.scalars(
+                    select(EditorialField).where(
+                        EditorialField.catalog_asset_id.in_(ids)
+                    )
+                )
+            }
+            tags: dict[str, list[str]] = {}
+            for row in session.scalars(
+                select(EditorialTag).where(EditorialTag.catalog_asset_id.in_(ids))
+            ):
+                tags.setdefault(row.catalog_asset_id, []).append(row.value)
             originals = (
                 {
                     row.catalog_asset_id: row
@@ -166,6 +192,12 @@ def editorial_router(
                         "media_type": asset.media_type,
                         "location_group_id": asset.location_group_id,
                         "movement_final": asset.movement,
+                        "people_final": fields.get(
+                            (asset.id, "PEOPLE"), asset.people or "UNKNOWN"
+                        ),
+                        "subject_final": fields.get((asset.id, "SUBJECT")),
+                        "people_label": fields.get((asset.id, "PEOPLE_LABEL")),
+                        "tags": sorted(tags.get(asset.id, [])),
                         "movement_suggested": movements[asset.id].value
                         if asset.id in movements
                         else None,
@@ -238,6 +270,32 @@ def editorial_router(
                 raise HTTPException(404, detail={"code": "trip_not_found"})
             suggestions = analyze_trip(session, settings, trip_id)
             return {"suggestion_count": len(suggestions)}
+
+    @router.patch("/api/editorial/trips/{trip_id}/assets")
+    def edit_assets(
+        trip_id: str, payload: BatchEditorialRequest, request: Request
+    ) -> dict[str, int]:
+        identity = admin(request, write=True)
+        with sessions() as session, session.begin():
+            if session.get(Trip, trip_id) is None:
+                raise HTTPException(404, detail={"code": "trip_not_found"})
+            try:
+                count = update_assets(
+                    session,
+                    trip_id,
+                    payload.asset_ids,
+                    actor=identity.user_id,
+                    group_id=payload.group_id,
+                    movement=payload.movement,
+                    people=payload.people,
+                    subject=payload.subject,
+                    people_label=payload.people_label,
+                    add_tags=payload.add_tags,
+                    remove_tags=payload.remove_tags,
+                )
+            except ValueError as error:
+                raise HTTPException(422, detail={"code": str(error)}) from error
+            return {"updated": count}
 
     @router.get("/api/editorial/trips/{trip_id}/name-suggestions")
     def name_suggestions(

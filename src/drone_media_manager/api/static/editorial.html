@@ -49,7 +49,7 @@ h2{font:normal 25px/1.2 Georgia,serif;margin:0}.hint{color:var(--muted);font-siz
 </style>
 </head>
 <body>
-<header><div class="mark"><span aria-hidden="true"></span><div class="brand">Drone<br>Media Manager</div></div><div class="phase">Editorial / Fase 3C</div></header>
+<header><div class="mark"><span aria-hidden="true"></span><div class="brand">Drone<br>Media Manager</div></div><div class="phase">Editorial / Fase 3D</div></header>
 <main>
 <h1>Organize a viagem<br>por contexto.</h1>
 <p class="lead">Revise tomadas em sequência. Escolha um nome sugerido ou escreva o seu; a confirmação final fica sob seu controle.</p>
@@ -103,6 +103,15 @@ h2{font:normal 25px/1.2 Georgia,serif;margin:0}.hint{color:var(--muted);font-siz
 <button id="replace" class="action" type="button">Substituir membros do grupo</button>
 </div>
 </div>
+<div class="panel"><h2>Classificar seleção</h2><p id="batch-current">Selecione arquivos para editar em lote. Cada campo começa em Não alterar.</p><div class="stack">
+<div class="field"><label for="batch-group">Grupo</label><select id="batch-group"><option value="">Não alterar</option></select></div>
+<div class="field"><label for="batch-people">Pessoas</label><select id="batch-people"><option value="">Não alterar</option><option value="YES">Sim</option><option value="NO">Não</option><option value="UNKNOWN">Desconhecido</option></select></div>
+<div class="field"><label for="batch-movement">Movimento (vazio = não alterar)</label><input id="batch-movement" list="movement-classes" maxlength="64" placeholder="Ex.: ORBITA"></div>
+<div class="field"><label for="batch-subject">Assunto (vazio = não alterar)</label><input id="batch-subject" maxlength="255" placeholder="Ex.: barco"></div>
+<div class="field"><label for="batch-people-label">Quem aparece (vazio = não alterar)</label><input id="batch-people-label" maxlength="255" placeholder="Ex.: nosso grupo"></div>
+<div class="field"><label for="batch-tags-add">Adicionar tags (separadas por vírgula)</label><input id="batch-tags-add" placeholder="Ex.: pôr do sol, barco"></div>
+<div class="field"><label for="batch-tags-remove">Remover tags (separadas por vírgula)</label><input id="batch-tags-remove" placeholder="Ex.: antiga"></div>
+<button id="batch-save" class="action primary" type="button" disabled>Salvar classificação</button></div></div>
 <div class="panel"><h2>Sugestões</h2><p>Use uma sugestão ou selecione novos limites antes de confirmar.</p><div id="suggestions"></div></div>
 <div class="panel"><h2>Grupos confirmados</h2><div id="groups"></div></div>
 </aside>
@@ -183,7 +192,8 @@ function render(){
     const filename=document.createElement('span');filename.className='filename';filename.textContent=asset.filename;
     const tag=document.createElement('span');tag.className='tag';tag.textContent=groupNames[asset.location_group_id]||'Sem grupo';
     const motion=document.createElement('span');motion.className='tag';motion.textContent=asset.movement_final?'Movimento final: '+asset.movement_final:asset.movement_suggested?'Sugestão: '+asset.movement_suggested:'Movimento não revisado';
-    body.append(filename,tag,motion);card.append(frame,body);
+    const classification=document.createElement('span');classification.className='tag';classification.textContent='Pessoas: '+({YES:'sim',NO:'não',UNKNOWN:'desconhecido'}[asset.people_final]||asset.people_final)+' · '+(asset.subject_final||'sem assunto')+(asset.tags.length?' · '+asset.tags.join(', '):'');
+    body.append(filename,tag,motion,classification);card.append(frame,body);
     card.addEventListener('click',event=>{
       if(event.shiftKey&&anchor!==null){const lo=Math.min(anchor,index),hi=Math.max(anchor,index),span=state.assets.slice(lo,hi+1);if(span.some(item=>!visibleAsset(item))){notice('O intervalo inclui arquivos ocultos. Use Todos para selecioná-lo.',true);return;}chooseRange(span.map(item=>item.id))}
       else{chooseRange([asset.id])}
@@ -193,6 +203,13 @@ function render(){
   const bounds=selectionBounds();
   $('selection').textContent=bounds?selected.length+' arquivo(s) · '+String(state.assets.findIndex(a=>a.id===bounds.start_asset_id)+1).padStart(3,'0')+'–'+String(state.assets.findIndex(a=>a.id===bounds.end_asset_id)+1).padStart(3,'0'):'Nenhum arquivo selecionado';
   $('create').disabled=!bounds;$('suggest-names').disabled=!bounds;$('add').disabled=!bounds||!state.groups.length;$('replace').disabled=!bounds||!state.groups.length;$('rename').disabled=!state.groups.length;
+  $('batch-save').disabled=!selected.length;
+  const current=selected.length===1?state.assets.find(a=>a.id===selected[0]):null;
+  $('batch-current').textContent=current?'Atual: '+current.filename+' · '+(current.subject_final||'sem assunto')+' · '+(current.tags.join(', ')||'sem tags'):selected.length?selected.length+' arquivos selecionados. Só os campos preenchidos serão alterados.':'Selecione arquivos para editar em lote. Cada campo começa em Não alterar.';
+  const batchGroup=$('batch-group'),oldBatchGroup=batchGroup.value;batchGroup.replaceChildren();
+  const unchanged=document.createElement('option');unchanged.value='';unchanged.textContent='Não alterar';batchGroup.append(unchanged);
+  for(const group of state.groups){const option=document.createElement('option');option.value=group.id;option.textContent=group.name;batchGroup.append(option)}
+  if(state.groups.some(group=>group.id===oldBatchGroup))batchGroup.value=oldBatchGroup;
   const groupSelect=$('group'),old=groupSelect.value;groupSelect.replaceChildren();
   for(const group of state.groups){const option=document.createElement('option');option.value=group.id;option.textContent=group.name;groupSelect.append(option)}
   if(state.groups.some(group=>group.id===old))groupSelect.value=old;
@@ -254,6 +271,18 @@ async function updateGroup(mode){
 }
 $('add').onclick=()=>action(()=>updateGroup('add'));
 $('replace').onclick=()=>action(()=>updateGroup('replace'));
+$('batch-save').onclick=()=>action(async()=>{
+  if(!selected.length)return;
+  const tags=id=>$(id).value.split(',').map(value=>value.trim()).filter(Boolean);
+  const payload={asset_ids:selected,group_id:$('batch-group').value||null,people:$('batch-people').value||null,movement:$('batch-movement').value.trim()||null,subject:$('batch-subject').value.trim()||null,people_label:$('batch-people-label').value.trim()||null,add_tags:tags('batch-tags-add'),remove_tags:tags('batch-tags-remove')};
+  if(!payload.group_id&&!payload.people&&!payload.movement&&!payload.subject&&!payload.people_label&&!payload.add_tags.length&&!payload.remove_tags.length){notice('Escolha ao menos uma alteração.',true);return;}
+  $('batch-save').disabled=true;
+  try{await api('/api/editorial/trips/'+encodeURIComponent(state.trip.id)+'/assets',{method:'PATCH',body:JSON.stringify(payload)});
+    const ids=[...selected];await loadState();chooseRange(ids.filter(id=>state.assets.some(a=>a.id===id)));
+    for(const id of ['batch-people','batch-movement','batch-subject','batch-people-label','batch-tags-add','batch-tags-remove','batch-group'])$(id).value='';
+    notice(ids.length+' arquivo(s) atualizado(s).');
+  }finally{$('batch-save').disabled=!selected.length;}
+});
 $('analyze').onclick=()=>action(async()=>{
   $('analyze').disabled=true;
   try{await api('/api/editorial/trips/'+encodeURIComponent($('trip').value)+'/analyze',{method:'POST'});await loadState();notice('Sugestões atualizadas. Grupos confirmados preservados.')}
