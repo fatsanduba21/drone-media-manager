@@ -34,10 +34,11 @@ h2{font:normal 25px/1.2 Georgia,serif;margin:0}.hint{color:var(--muted);font-siz
 .frame img{width:100%;height:100%;object-fit:cover;display:block}.no-image{display:grid;place-items:center;height:100%;color:#9b9b95;font:italic 15px Georgia,serif}
 .number{position:absolute;left:8px;top:8px;padding:2px 6px;background:#121713d9;color:var(--accent);font:700 11px monospace}
 .card-body{padding:9px 10px 10px}.filename{font:12px/1.2 monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tag{display:block;margin-top:7px;font-size:11px;color:var(--warm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{display:block;margin-top:7px;font-size:11px;color:var(--warm);overflow-wrap:anywhere}
 .side{position:sticky;top:20px;display:grid;gap:12px}.panel{background:var(--panel);border:1px solid var(--line);padding:18px}
 .panel h2{font-size:22px;margin-bottom:12px}.panel p{color:var(--muted);font-size:13px;margin:0 0 14px}
 .selection{color:var(--accent);font:700 13px monospace;margin:4px 0 13px}
+#batch-current{white-space:pre-line;overflow-wrap:anywhere}
 .stack{display:grid;gap:9px}.stack .action{width:100%}.panel input,.panel select{width:100%}
 .suggestion,.group-row{border-top:1px solid var(--line);padding:12px 0}.suggestion strong,.group-row strong{display:block;font-size:13px}
 .suggestion small,.group-row small{display:block;color:var(--muted);margin:4px 0 8px}.inline{display:flex;gap:6px}.inline button{flex:1;min-height:34px;padding:6px;font-size:12px}
@@ -103,7 +104,7 @@ h2{font:normal 25px/1.2 Georgia,serif;margin:0}.hint{color:var(--muted);font-siz
 <button id="replace" class="action" type="button">Substituir membros do grupo</button>
 </div>
 </div>
-<div class="panel"><h2>Classificar seleção</h2><p id="batch-current">Selecione arquivos para editar em lote. Cada campo começa em Não alterar.</p><div class="stack">
+<div class="panel"><h2>Classificar seleção</h2><p id="batch-current">Selecione arquivos para editar em lote.</p><p>Valores salvos em comum já aparecem nos campos. Valores diferentes ficam em branco e não serão alterados.</p><div class="stack">
 <div class="field"><label for="batch-group">Grupo</label><select id="batch-group"><option value="">Não alterar</option></select></div>
 <div class="field"><label for="batch-people">Pessoas</label><select id="batch-people"><option value="">Não alterar</option><option value="YES">Sim</option><option value="NO">Não</option><option value="UNKNOWN">Desconhecido</option></select></div>
 <div class="field"><label for="batch-movement">Movimento (vazio = não alterar)</label><input id="batch-movement" list="movement-classes" maxlength="64" placeholder="Ex.: ORBITA"></div>
@@ -111,6 +112,7 @@ h2{font:normal 25px/1.2 Georgia,serif;margin:0}.hint{color:var(--muted);font-siz
 <div class="field"><label for="batch-people-label">Quem aparece (vazio = não alterar)</label><input id="batch-people-label" maxlength="255" placeholder="Ex.: nosso grupo"></div>
 <div class="field"><label for="batch-tags-add">Adicionar tags (separadas por vírgula)</label><input id="batch-tags-add" placeholder="Ex.: pôr do sol, barco"></div>
 <div class="field"><label for="batch-tags-remove">Remover tags (separadas por vírgula)</label><input id="batch-tags-remove" placeholder="Ex.: antiga"></div>
+<div id="batch-tag-buttons" class="name-candidates" aria-label="Tags atuais"></div>
 <button id="batch-save" class="action primary" type="button" disabled>Salvar classificação</button></div></div>
 <div class="panel"><h2>Sugestões</h2><p>Use uma sugestão ou selecione novos limites antes de confirmar.</p><div id="suggestions"></div></div>
 <div class="panel"><h2>Grupos confirmados</h2><div id="groups"></div></div>
@@ -152,7 +154,18 @@ function visibleAsset(asset){
 }
 function chooseRange(ids){
   if(ids.some(id=>!visibleAsset(state.assets.find(a=>a.id===id))))$('asset-filter').value='all';
-  selected=ids;anchor=state.assets.findIndex(a=>a.id===ids[0]);$('name').value='';clearCandidates();render();action(loadMovement);
+  selected=ids;anchor=state.assets.findIndex(a=>a.id===ids[0]);$('name').value='';clearCandidates();render();populateBatchEditor();action(loadMovement);
+}
+function selectedAssets(){return selected.map(id=>state.assets.find(asset=>asset.id===id)).filter(Boolean);}
+function sharedValue(assets,key){return assets.length&&assets.every(asset=>asset[key]===assets[0][key])?assets[0][key]:undefined;}
+function populateBatchEditor(){
+  const assets=selectedAssets();
+  $('batch-group').value=sharedValue(assets,'location_group_id')||'';
+  $('batch-people').value=sharedValue(assets,'people_final')||'';
+  $('batch-movement').value=sharedValue(assets,'movement_final')||'';
+  $('batch-subject').value=sharedValue(assets,'subject_final')||'';
+  $('batch-people-label').value=sharedValue(assets,'people_label')||'';
+  $('batch-tags-add').value='';$('batch-tags-remove').value='';
 }
 async function suggestNames(){
   const bounds=selectionBounds();if(!bounds)return;
@@ -192,8 +205,10 @@ function render(){
     const filename=document.createElement('span');filename.className='filename';filename.textContent=asset.filename;
     const tag=document.createElement('span');tag.className='tag';tag.textContent=groupNames[asset.location_group_id]||'Sem grupo';
     const motion=document.createElement('span');motion.className='tag';motion.textContent=asset.movement_final?'Movimento final: '+asset.movement_final:asset.movement_suggested?'Sugestão: '+asset.movement_suggested:'Movimento não revisado';
-    const classification=document.createElement('span');classification.className='tag';classification.textContent='Pessoas: '+({YES:'sim',NO:'não',UNKNOWN:'desconhecido'}[asset.people_final]||asset.people_final)+' · '+(asset.subject_final||'sem assunto')+(asset.tags.length?' · '+asset.tags.join(', '):'');
-    body.append(filename,tag,motion,classification);card.append(frame,body);
+    const people=document.createElement('span');people.className='tag';people.textContent='Pessoas: '+({YES:'sim',NO:'não',UNKNOWN:'desconhecido'}[asset.people_final]||asset.people_final)+(asset.people_label?' · '+asset.people_label:'');
+    const subject=document.createElement('span');subject.className='tag';subject.textContent='Assunto: '+(asset.subject_final||'não definido');
+    const tags=document.createElement('span');tags.className='tag';tags.textContent='Tags: '+(asset.tags.join(', ')||'nenhuma');
+    body.append(filename,tag,motion,people,subject,tags);card.append(frame,body);
     card.addEventListener('click',event=>{
       if(event.shiftKey&&anchor!==null){const lo=Math.min(anchor,index),hi=Math.max(anchor,index),span=state.assets.slice(lo,hi+1);if(span.some(item=>!visibleAsset(item))){notice('O intervalo inclui arquivos ocultos. Use Todos para selecioná-lo.',true);return;}chooseRange(span.map(item=>item.id))}
       else{chooseRange([asset.id])}
@@ -204,8 +219,13 @@ function render(){
   $('selection').textContent=bounds?selected.length+' arquivo(s) · '+String(state.assets.findIndex(a=>a.id===bounds.start_asset_id)+1).padStart(3,'0')+'–'+String(state.assets.findIndex(a=>a.id===bounds.end_asset_id)+1).padStart(3,'0'):'Nenhum arquivo selecionado';
   $('create').disabled=!bounds;$('suggest-names').disabled=!bounds;$('add').disabled=!bounds||!state.groups.length;$('replace').disabled=!bounds||!state.groups.length;$('rename').disabled=!state.groups.length;
   $('batch-save').disabled=!selected.length;
-  const current=selected.length===1?state.assets.find(a=>a.id===selected[0]):null;
-  $('batch-current').textContent=current?'Atual: '+current.filename+' · '+(current.subject_final||'sem assunto')+' · '+(current.tags.join(', ')||'sem tags'):selected.length?selected.length+' arquivos selecionados. Só os campos preenchidos serão alterados.':'Selecione arquivos para editar em lote. Cada campo começa em Não alterar.';
+  const assets=selectedAssets(),current=assets.length===1?assets[0]:null;
+  const common=key=>sharedValue(assets,key);
+  const display=(key,fallback)=>assets.length>1&&common(key)===undefined?'valores diferentes':common(key)||fallback;
+  const commonTags=assets.length?assets[0].tags.filter(value=>assets.every(asset=>asset.tags.includes(value))):[];
+  $('batch-current').textContent=assets.length?(current?'Atual: '+current.filename:assets.length+' arquivos selecionados')+'\nGrupo: '+(assets.length>1&&common('location_group_id')===undefined?'valores diferentes':groupNames[common('location_group_id')]||'sem grupo')+'\nPessoas: '+({YES:'sim',NO:'não',UNKNOWN:'desconhecido'}[display('people_final','desconhecido')]||display('people_final','desconhecido'))+'\nMovimento: '+display('movement_final','não confirmado')+'\nAssunto: '+display('subject_final','não definido')+'\nQuem aparece: '+display('people_label','não definido')+'\nTags em comum: '+(commonTags.join(', ')||'nenhuma'):'Selecione arquivos para editar em lote. Cada campo começa em Não alterar.';
+  const tagButtons=$('batch-tag-buttons');tagButtons.replaceChildren();
+  for(const value of commonTags){const button=document.createElement('button');button.className='action';button.type='button';button.textContent='Remover '+value;button.onclick=()=>{const input=$('batch-tags-remove');const tags=input.value.split(',').map(tag=>tag.trim()).filter(Boolean);if(!tags.includes(value))tags.push(value);input.value=tags.join(', ');};tagButtons.append(button)}
   const batchGroup=$('batch-group'),oldBatchGroup=batchGroup.value;batchGroup.replaceChildren();
   const unchanged=document.createElement('option');unchanged.value='';unchanged.textContent='Não alterar';batchGroup.append(unchanged);
   for(const group of state.groups){const option=document.createElement('option');option.value=group.id;option.textContent=group.name;batchGroup.append(option)}
@@ -245,7 +265,7 @@ function render(){
   }
   if(!state.groups.length)groups.textContent='Nenhum grupo confirmado.';
 }
-async function loadState(){const trip=$('trip').value;const result=await api('/api/editorial/trips/'+encodeURIComponent(trip));if(trip!==$('trip').value)return;state=result;selected=[];anchor=null;clearCandidates();render();await loadMovement();}
+async function loadState(){const trip=$('trip').value;const result=await api('/api/editorial/trips/'+encodeURIComponent(trip));if(trip!==$('trip').value)return;state=result;selected=[];anchor=null;clearCandidates();render();populateBatchEditor();await loadMovement();}
 async function createGroup(){
   const bounds=selectionBounds();if(!bounds)return;
   const name=$('name').value.trim();if(!name){notice('Digite ou escolha um nome antes de confirmar.',true);$('name').focus();return;}
@@ -254,7 +274,7 @@ async function createGroup(){
 }
 async function action(fn){try{notice('');await fn()}catch(error){notice(error.message,true)}}
 $('trip').onchange=()=>action(loadState);
-$('asset-filter').onchange=()=>{selected=[];anchor=null;clearCandidates();render();action(loadMovement);};
+$('asset-filter').onchange=()=>{selected=[];anchor=null;clearCandidates();render();populateBatchEditor();action(loadMovement);};
 $('create').onclick=()=>action(createGroup);
 $('name').addEventListener('input',()=>{selectedPlaceId=null;});
 $('suggest-names').onclick=()=>action(suggestNames);
@@ -274,12 +294,13 @@ $('replace').onclick=()=>action(()=>updateGroup('replace'));
 $('batch-save').onclick=()=>action(async()=>{
   if(!selected.length)return;
   const tags=id=>$(id).value.split(',').map(value=>value.trim()).filter(Boolean);
-  const payload={asset_ids:selected,group_id:$('batch-group').value||null,people:$('batch-people').value||null,movement:$('batch-movement').value.trim()||null,subject:$('batch-subject').value.trim()||null,people_label:$('batch-people-label').value.trim()||null,add_tags:tags('batch-tags-add'),remove_tags:tags('batch-tags-remove')};
+  const assets=selectedAssets();
+  const changed=(value,key)=>value===sharedValue(assets,key)?null:value;
+  const payload={asset_ids:selected,group_id:changed($('batch-group').value||null,'location_group_id'),people:changed($('batch-people').value||null,'people_final'),movement:changed($('batch-movement').value.trim()||null,'movement_final'),subject:changed($('batch-subject').value.trim()||null,'subject_final'),people_label:changed($('batch-people-label').value.trim()||null,'people_label'),add_tags:tags('batch-tags-add'),remove_tags:tags('batch-tags-remove')};
   if(!payload.group_id&&!payload.people&&!payload.movement&&!payload.subject&&!payload.people_label&&!payload.add_tags.length&&!payload.remove_tags.length){notice('Escolha ao menos uma alteração.',true);return;}
   $('batch-save').disabled=true;
   try{await api('/api/editorial/trips/'+encodeURIComponent(state.trip.id)+'/assets',{method:'PATCH',body:JSON.stringify(payload)});
     const ids=[...selected];await loadState();chooseRange(ids.filter(id=>state.assets.some(a=>a.id===id)));
-    for(const id of ['batch-people','batch-movement','batch-subject','batch-people-label','batch-tags-add','batch-tags-remove','batch-group'])$(id).value='';
     notice(ids.length+' arquivo(s) atualizado(s).');
   }finally{$('batch-save').disabled=!selected.length;}
 });
