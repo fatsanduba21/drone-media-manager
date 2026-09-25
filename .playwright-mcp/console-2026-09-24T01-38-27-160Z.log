@@ -1,0 +1,24 @@
+[   27670ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/Docs/:231
+[   80304ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/:231
+[   89068ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/src/:231
+[   89124ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/tests/:231
+[   89176ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/src/drone_media_manager/:231
+[   89237ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/Docs/superpowers/:231
+[   89291ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/Docs/operations/:231
+[   97915ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/src/drone_media_manager/api/:231
+[   97966ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/src/drone_media_manager/catalog/:231
+[   98023ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/src/drone_media_manager/db/:231
+[   98077ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/src/drone_media_manager/domain/:231
+[   98129ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/src/drone_media_manager/ingest/:231
+[   98191ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/src/drone_media_manager/derivatives/:231
+[   98251ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/src/drone_media_manager/jobs/:231
+[   98310ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/src/drone_media_manager/worker/:231
+[   98365ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/tests/unit/:231
+[   98420ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/tests/integration/:231
+[  109781ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/src/drone_media_manager/api/routes/:231
+[  109838ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/src/drone_media_manager/api/schemas/:231
+[  109887ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/src/drone_media_manager/db/models/:231
+[  109942ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/src/drone_media_manager/db/migrations/versions/:231
+[  109997ms] [WARNING] crbug/1173575, non-JS module files deprecated. @ file:///C:/dev-apps/drone-orgnize/src/drone_media_manager/cli/:231
+[ 1330073ms] [ERROR] Access to fetch at 'file:///C:/api/editorial/trips' from origin 'null' has been blocked by CORS policy: Cross origin requests are only supported for protocol schemes: chrome, chrome-extension, chrome-untrusted, data, http, https, isolated-app. @ file:///C:/dev-apps/drone-orgnize/src/drone_media_manager/api/static/editorial.html:0
+[ 1330074ms] [ERROR] Failed to load resource: net::ERR_FAILED @ file:///C:/api/editorial/trips:0

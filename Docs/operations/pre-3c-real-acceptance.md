@@ -14,6 +14,11 @@ uv run dmm-organize plan --source 'CAMINHO_ORIGEM' --trip 'VIAGEM_TESTE' --poi '
 uv run dmm-organize apply --source 'CAMINHO_ORIGEM' --trip 'VIAGEM_TESTE' --poi 'LOCAL' --output-omv 'RAIZ_OMV'
 ```
 
+uv run dmm-organize plan --source 'D:\Drone_Temp\Fernando de Noronha Teste' --trip 'Noronha Teste' --poi 'Praias' --output-omv 'S:\drone-organizado'
+uv run dmm-organize apply --source 'D:\Drone_Temp\Fernando de Noronha Teste' --trip 'Noronha Teste' --poi 'Praias' --output-omv 'S:\drone-organizado'
+
+
+
 Confira `errors=[]`, arquivos `CREATED`/`ALREADY_OK`, SRT pareado e o caminho do
 `MANIFESTO.json`. Repita PLAN/APPLY com os mesmos argumentos; espere
 `CREATED=0`. Confirme que os arquivos de origem não foram movidos/alterados.

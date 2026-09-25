@@ -10,3 +10,6 @@ htmlcov/
 .env
 .uv-cache/
 .dmm-worker-snapshots.json
+# Codex Windows sandbox runtime
+.codex-runtime/
+.pytest_cache/

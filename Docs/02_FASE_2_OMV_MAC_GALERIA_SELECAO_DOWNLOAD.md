@@ -1,8 +1,8 @@
 # Drone Media Manager — Fase 2: OMV → Mac → Catálogo → Galeria → Seleção → Download
 
-**Base auditada:** `DIAGNOSTICO_FUNCIONAL_E_PRIORIDADES.md`
-**Commit auditado da base:** `1a1de0b3c26d420cdc4c954d0d3e8ccac7d11bd7`
-**Pré-condição:** Fase 1 concluída e aceita com mídia real no Windows → OMV.
+**Base auditada:** `DIAGNOSTICO_FUNCIONAL_E_PRIORIDADES.md`  
+**Commit auditado da base:** `1a1de0b3c26d420cdc4c954d0d3e8ccac7d11bd7`  
+**Pré-condição:** Fase 1 concluída e aceita com mídia real no Windows → OMV.  
 **Objetivo:** transformar o conteúdo editorial publicado no OMV em uma aplicação utilizável no Mac mini, permitindo navegar, visualizar, selecionar e baixar apenas os originais escolhidos.
 
 ---
@@ -537,16 +537,10 @@ Sempre entrega o ORIGINAL do OMV, nunca proxy.
 ## Download em lote
 
 ```text
-GET /api/catalog/trips/{slug}/selected-downloads
+POST /api/catalog/trips/{slug}/download-selected
 ```
 
-Pré-validar os originais selecionados e devolver URLs individuais, nomes
-editoriais seguros, quantidade e tamanho total, sem paths físicos. O botão
-"Baixar selecionados" inicia downloads separados no Chrome, sem criar ZIP.
-Cada asset oferece "Baixar original" caso o navegador bloqueie downloads
-múltiplos. O servidor entrega cada original sem carregar vídeos inteiros
-em RAM. O navegador controla a pasta de destino e pode pedir permissão para
-downloads múltiplos. A seleção permanece até a usuária desmarcá-la.
+Gerar ZIP por streaming. Não carregar todos os vídeos em RAM.
 
 ## Naming
 
@@ -570,10 +564,7 @@ password_hash
 
 ## Aceite
 
-Selecionar três assets, fechar/reabrir e baixar três arquivos originais
-separados, sem ZIP. Conferir os nomes editoriais e SHA-256 com os valores
-catalogados. Validar a permissão de downloads múltiplos no Chrome do
-MacBook e o botão individual caso um download seja bloqueado.
+Selecionar três assets, fechar/reabrir e baixar apenas esses três em qualidade original.
 
 ---
 
