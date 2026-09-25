@@ -52,6 +52,15 @@ Layout inspecionado visualmente. Autenticação, persistência, reprocessamento,
 cache offline e APIs reais foram cobertos separadamente pelos testes Python.
 Não foi executado aceite no Mac/OMV nesta sessão.
 
+## Retorno do uso real
+
+O usuário conseguiu atualizar um vídeo com sugestão automática e também com
+revisão visual/manual; ambas as escolhas foram preservadas. O fluxo atual da
+galeria ainda parece disperso. Para uma revisão de UX após concluir o processo
+editorial, a sequência desejada é: selecionar → app avaliar → usuário aprovar
+ou alterar → editar trechos → revisão final. O usuário pediu para registrar
+esse ponto e seguir agora para a Fase 3D, sem redesenhar a tela nesta etapa.
+
 `ruff check .` e `mypy src` passaram. A formatação dos 16 arquivos Python
 alterados passou; `ruff format --check .` registra 25 arquivos preexistentes
 fora do escopo que seriam reformatados. A sintaxe JavaScript também tem teste
