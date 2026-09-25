@@ -85,6 +85,88 @@ def login(client: TestClient) -> None:
     assert response.status_code == 303
 
 
+def test_movement_review_api_is_authenticated_manual_and_durable(
+    remote_editorial: tuple[TestClient, sessionmaker[Session], str, str],
+) -> None:
+    client, sessions, trip_id, asset_id = remote_editorial
+    base = f"/api/editorial/assets/{asset_id}/movement"
+    assert client.get(base).status_code == 401
+    assert client.patch(base, json={"value": "PAN"}).status_code == 401
+    login(client)
+    with sessions() as session:
+        csrf = session.query(UserSession).one().csrf_token
+        asset = session.get(CatalogAsset, asset_id)
+        asset.media_type, asset.duration_ms = "VIDEO", 20000
+        session.commit()
+    headers = {"X-CSRF-Token": csrf, "Origin": "https://testserver"}
+    assert client.patch(base, json={"value": "PAN"}).status_code == 403
+    assert client.patch(base, json={"value": "  "}, headers=headers).status_code == 422
+    assert client.patch(base, json={"value": "PAN"}, headers=headers).status_code == 200
+    assert (
+        client.patch(
+            base,
+            json={"value": "Órbita editorial", "start_ms": 1000, "end_ms": 5000},
+            headers=headers,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.patch(
+            base,
+            json={"value": "PAN", "start_ms": 4000, "end_ms": 6000},
+            headers=headers,
+        ).status_code
+        == 422
+    )
+    assert (
+        client.patch(
+            base,
+            json={"value": "PAN", "start_ms": 4000, "end_ms": 30000},
+            headers=headers,
+        ).status_code
+        == 422
+    )
+    assert (
+        client.put(
+            base + "/reference", json={"latitude": 999, "longitude": 0}, headers=headers
+        ).status_code
+        == 422
+    )
+    assert (
+        client.put(
+            base + "/reference",
+            json={"latitude": -3.8, "longitude": -32.4},
+            headers=headers,
+        ).status_code
+        == 200
+    )
+    job = client.post(f"/api/editorial/trips/{trip_id}/movements", headers=headers)
+    assert job.status_code == 202
+    assert (
+        client.get("/api/editorial/movement-jobs/" + job.json()["id"]).json()["status"]
+        == "COMPLETE"
+    )
+    state = client.get(base).json()
+    assert state["final"] == "PAN"
+    assert state["suggestion"]["value"] == "UNKNOWN"
+    assert state["reference"] == {"latitude": -3.8, "longitude": -32.4}
+    assert state["confirmed_segments"][0]["value"] == "Órbita editorial"
+    assert (
+        client.delete(
+            base + "/segments/" + state["confirmed_segments"][0]["id"], headers=headers
+        ).status_code
+        == 200
+    )
+    assert client.get(base).json()["confirmed_segments"] == []
+    assert client.get("/api/editorial/assets/not-found/movement").status_code == 404
+    assert (
+        client.get(f"/api/editorial/trips/{trip_id}").json()["assets"][0][
+            "movement_final"
+        ]
+        == "PAN"
+    )
+
+
 def test_remote_editorial_requires_https_login(
     remote_editorial: tuple[TestClient, sessionmaker[Session], str, str],
 ) -> None:

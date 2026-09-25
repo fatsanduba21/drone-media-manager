@@ -44,11 +44,12 @@ h2{font:normal 25px/1.2 Georgia,serif;margin:0}.hint{color:var(--muted);font-siz
 .name-candidates{display:grid;gap:6px}.name-candidates button{text-align:left}.attribution{display:block;color:#fff;font:400 12px/1.4 sans-serif;white-space:nowrap;margin:8px 0 0}
 .empty{border:1px dashed var(--line);color:var(--muted);padding:35px;text-align:center;grid-column:1/-1}
 #status{min-height:22px;margin:0 0 14px;color:var(--warm)}#status.error{color:#ff9d87}
+#movement-panel{margin-top:24px}#movement-panel pre{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);font-size:12px}.movement-fields{display:flex;gap:12px;flex-wrap:wrap;align-items:end}.movement-fields .field{flex:1;min-width:120px}.movement-fields input,.movement-fields select{width:100%}.segment-row{padding:12px 0;border-top:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap}.segment-row span{flex:1}.segment-row button{min-height:36px}details{margin-top:14px}summary{cursor:pointer}#movement-job{color:var(--accent)}
 @media(max-width:950px){.workspace{grid-template-columns:1fr}.side{position:static;grid-template-columns:repeat(auto-fit,minmax(270px,1fr))}}
 </style>
 </head>
 <body>
-<header><div class="mark"><span aria-hidden="true"></span><div class="brand">Drone<br>Media Manager</div></div><div class="phase">Editorial / Fase 3B</div></header>
+<header><div class="mark"><span aria-hidden="true"></span><div class="brand">Drone<br>Media Manager</div></div><div class="phase">Editorial / Fase 3C</div></header>
 <main>
 <h1>Organize a viagem<br>por contexto.</h1>
 <p class="lead">Revise tomadas em sequência. Escolha um nome sugerido ou escreva o seu; a confirmação final fica sob seu controle.</p>
@@ -56,6 +57,8 @@ h2{font:normal 25px/1.2 Georgia,serif;margin:0}.hint{color:var(--muted);font-siz
 <div class="field"><label for="trip">Viagem</label><select id="trip"></select></div>
 <div class="field"><label for="asset-filter">Mostrar arquivos</label><select id="asset-filter"><option value="all">Todos</option><option value="untreated">Sem grupo</option><option value="treated">Com grupo</option></select></div>
 <button id="analyze" class="action" type="button">Sugerir fronteiras</button>
+<button id="analyze-movement" class="action" type="button">Sugerir movimentos</button>
+<span id="movement-job" role="status" aria-live="polite"></span>
 <div id="count" class="meta"></div>
 </div>
 <div id="status" role="status" aria-live="polite"></div>
@@ -63,6 +66,26 @@ h2{font:normal 25px/1.2 Georgia,serif;margin:0}.hint{color:var(--muted);font-siz
 <section aria-label="Grade de arquivos">
 <div class="sheet-heading"><h2>Folha de contato</h2><span class="hint">Clique no início; Shift + clique no fim</span></div>
 <div id="grid" class="grid"></div>
+<div id="movement-panel" class="panel">
+<h2>Movimento da tomada</h2>
+<p id="movement-help">Selecione um arquivo para revisar movimento e trechos. A edição manual funciona sem SRT e sem internet.</p>
+<div id="movement-controls" hidden>
+<p><a id="movement-preview" class="action" target="_blank" rel="noopener">Abrir preview</a></p>
+<p id="movement-current"></p>
+<p id="movement-suggestion"></p>
+<div class="movement-fields">
+<div class="field"><label for="movement-value">Movimento final (ou digite outro)</label><input id="movement-value" list="movement-classes" maxlength="64" autocomplete="off"><datalist id="movement-classes"></datalist></div>
+<button id="movement-confirm" class="action" type="button">Confirmar sugestão</button>
+<button id="movement-save" class="action primary" type="button">Salvar movimento</button>
+</div>
+<details><summary>Evidência da sugestão · confiança heurística</summary><pre id="movement-evidence"></pre></details>
+<details><summary>Referência para aproximação / afastamento</summary><p>Informe as coordenadas do alvo, não a posição do drone. Depois, execute Sugerir movimentos.</p>
+<div class="movement-fields"><div class="field"><label for="anchor-lat">Latitude</label><input id="anchor-lat" type="number" min="-90" max="90" step="any"></div><div class="field"><label for="anchor-lon">Longitude</label><input id="anchor-lon" type="number" min="-180" max="180" step="any"></div><button id="anchor-save" class="action" type="button">Confirmar referência</button></div></details>
+<details id="movement-segments"><summary>Trechos sugeridos e confirmados</summary><p>Limites automáticos aproximados. Ajuste os segundos antes de salvar. O movimento do arquivo inteiro é independente dos trechos.</p>
+<div id="segment-list"></div>
+<div class="movement-fields"><div class="field"><label for="segment-start">Início (segundos)</label><input id="segment-start" type="number" min="0" step="0.001" value="0"></div><div class="field"><label for="segment-end">Fim (segundos)</label><input id="segment-end" type="number" min="0" step="0.001"></div><div class="field"><label for="segment-value">Movimento do trecho</label><input id="segment-value" list="movement-classes" maxlength="64"></div><button id="segment-save" class="action primary" type="button">Salvar trecho</button></div>
+<div id="confirmed-segments"></div></details>
+</div></div>
 </section>
 <aside class="side">
 <div class="panel">
@@ -89,6 +112,7 @@ h2{font:normal 25px/1.2 Georgia,serif;margin:0}.hint{color:var(--muted);font-siz
 const $ = id => document.getElementById(id);
 const csrfToken = document.querySelector('meta[name="dmm-csrf-token"]').content;
 let state = null, selected = [], anchor = null, selectedPlaceId = null, nameRequest = 0;
+let movementState=null,movementRequest=0,movementBusy=false;
 function notice(message, error=false){ $('status').textContent=message; $('status').classList.toggle('error',error); }
 async function api(url, options={}){
   const method=(options.method||'GET').toUpperCase();
@@ -119,7 +143,7 @@ function visibleAsset(asset){
 }
 function chooseRange(ids){
   if(ids.some(id=>!visibleAsset(state.assets.find(a=>a.id===id))))$('asset-filter').value='all';
-  selected=ids;anchor=state.assets.findIndex(a=>a.id===ids[0]);$('name').value='';clearCandidates();render();
+  selected=ids;anchor=state.assets.findIndex(a=>a.id===ids[0]);$('name').value='';clearCandidates();render();action(loadMovement);
 }
 async function suggestNames(){
   const bounds=selectionBounds();if(!bounds)return;
@@ -158,7 +182,8 @@ function render(){
     const body=document.createElement('span');body.className='card-body';
     const filename=document.createElement('span');filename.className='filename';filename.textContent=asset.filename;
     const tag=document.createElement('span');tag.className='tag';tag.textContent=groupNames[asset.location_group_id]||'Sem grupo';
-    body.append(filename,tag);card.append(frame,body);
+    const motion=document.createElement('span');motion.className='tag';motion.textContent=asset.movement_final?'Movimento final: '+asset.movement_final:asset.movement_suggested?'Sugestão: '+asset.movement_suggested:'Movimento não revisado';
+    body.append(filename,tag,motion);card.append(frame,body);
     card.addEventListener('click',event=>{
       if(event.shiftKey&&anchor!==null){const lo=Math.min(anchor,index),hi=Math.max(anchor,index),span=state.assets.slice(lo,hi+1);if(span.some(item=>!visibleAsset(item))){notice('O intervalo inclui arquivos ocultos. Use Todos para selecioná-lo.',true);return;}chooseRange(span.map(item=>item.id))}
       else{chooseRange([asset.id])}
@@ -203,7 +228,7 @@ function render(){
   }
   if(!state.groups.length)groups.textContent='Nenhum grupo confirmado.';
 }
-async function loadState(){state=await api('/api/editorial/trips/'+encodeURIComponent($('trip').value));selected=[];anchor=null;clearCandidates();render();}
+async function loadState(){const trip=$('trip').value;const result=await api('/api/editorial/trips/'+encodeURIComponent(trip));if(trip!==$('trip').value)return;state=result;selected=[];anchor=null;clearCandidates();render();await loadMovement();}
 async function createGroup(){
   const bounds=selectionBounds();if(!bounds)return;
   const name=$('name').value.trim();if(!name){notice('Digite ou escolha um nome antes de confirmar.',true);$('name').focus();return;}
@@ -212,7 +237,7 @@ async function createGroup(){
 }
 async function action(fn){try{notice('');await fn()}catch(error){notice(error.message,true)}}
 $('trip').onchange=()=>action(loadState);
-$('asset-filter').onchange=()=>{selected=[];anchor=null;clearCandidates();render();};
+$('asset-filter').onchange=()=>{selected=[];anchor=null;clearCandidates();render();action(loadMovement);};
 $('create').onclick=()=>action(createGroup);
 $('name').addEventListener('input',()=>{selectedPlaceId=null;});
 $('suggest-names').onclick=()=>action(suggestNames);
@@ -233,6 +258,69 @@ $('analyze').onclick=()=>action(async()=>{
   $('analyze').disabled=true;
   try{await api('/api/editorial/trips/'+encodeURIComponent($('trip').value)+'/analyze',{method:'POST'});await loadState();notice('Sugestões atualizadas. Grupos confirmados preservados.')}
   finally{$('analyze').disabled=false}
+});
+function movementUrl(id){return '/api/editorial/assets/'+encodeURIComponent(id)+'/movement';}
+async function loadMovement(){
+  const request=++movementRequest;movementState=null;$('movement-controls').hidden=true;
+  if(selected.length!==1){$('movement-help').textContent='Selecione um arquivo para revisar movimento e trechos. A edição manual funciona sem SRT e sem internet.';return;}
+  const id=selected[0];$('movement-help').textContent='Carregando movimento…';
+  const data=await api(movementUrl(id));if(request!==movementRequest)return;
+  movementState=data;$('movement-controls').hidden=false;$('movement-help').textContent=state.assets.find(a=>a.id===id).filename;
+  $('movement-preview').href='/gallery/'+encodeURIComponent(state.trip.slug)+'/assets/'+encodeURIComponent(state.assets.find(a=>a.id===id).asset_id);
+  $('movement-current').textContent=data.final?'Movimento final: '+data.final+(data.locked?' · confirmado':' · importado'):'Nenhum movimento confirmado.';
+  const suggestion=data.suggestion;
+  $('movement-suggestion').textContent=suggestion?'Sugestão: '+suggestion.value+' · confiança heurística '+Math.round(suggestion.confidence*100)+'%':'Sem análise. Use Sugerir movimentos ou classifique manualmente.';
+  $('movement-evidence').textContent=suggestion?JSON.stringify({versao:suggestion.algorithm_version,...suggestion.evidence},null,2):'Sem evidência disponível.';
+  $('movement-confirm').disabled=!suggestion;
+  $('movement-value').value=data.final||'';
+  $('movement-classes').replaceChildren(...data.classes.map(value=>{const option=document.createElement('option');option.value=value;return option;}));
+  $('anchor-lat').value=data.reference?.latitude??'';$('anchor-lon').value=data.reference?.longitude??'';
+  $('segment-start').value=0;$('segment-end').value=data.duration_ms?data.duration_ms/1000:'';$('segment-value').value='';
+  $('segment-save').disabled=!data.duration_ms;
+  const list=$('segment-list');list.replaceChildren();
+  for(const segment of data.segments){
+    const row=document.createElement('div');row.className='segment-row';const label=document.createElement('span');label.textContent=(segment.start_ms/1000)+'–'+(segment.end_ms/1000)+' s · '+segment.value+' (sugerido)';
+    const edit=document.createElement('button');edit.className='action';edit.textContent='Revisar trecho';edit.onclick=()=>{$('segment-start').value=segment.start_ms/1000;$('segment-end').value=segment.end_ms/1000;$('segment-value').value=segment.value;$('segment-value').focus();};
+    const detail=document.createElement('details');const title=document.createElement('summary');title.textContent='Evidência';const pre=document.createElement('pre');pre.textContent=JSON.stringify(segment.evidence,null,2);detail.append(title,pre);row.append(label,edit,detail);list.append(row);
+  }
+  const confirmed=$('confirmed-segments');confirmed.replaceChildren();
+  for(const segment of data.confirmed_segments){
+    const row=document.createElement('div');row.className='segment-row';const label=document.createElement('span');label.textContent=(segment.start_ms/1000)+'–'+(segment.end_ms/1000)+' s · '+segment.value+' (confirmado)';
+    const remove=document.createElement('button');remove.className='action';remove.textContent='Remover trecho';remove.onclick=()=>movementAction(async()=>{await api(movementUrl(id)+'/segments/'+encodeURIComponent(segment.id),{method:'DELETE'});});row.append(label,remove);confirmed.append(row);
+  }
+}
+async function movementAction(fn){
+  if(movementBusy||!movementState)return;
+  movementBusy=true;const id=movementState.asset_id;
+  try{await fn(id);if(selected.length===1&&selected[0]===id)await loadMovement();const asset=state.assets.find(a=>a.id===id);if(asset&&movementState?.asset_id===id){asset.movement_final=movementState.final;render();}notice('Revisão salva.');}
+  catch(error){notice(error.message,true)}finally{movementBusy=false;}
+}
+$('movement-save').onclick=()=>movementAction(id=>api(movementUrl(id),{method:'PATCH',body:JSON.stringify({value:$('movement-value').value})}));
+$('movement-confirm').onclick=()=>movementAction(id=>api(movementUrl(id),{method:'PATCH',body:JSON.stringify({value:movementState.suggestion.value})}));
+$('segment-save').onclick=()=>movementAction(id=>{
+  if(!$('segment-start').value||!$('segment-end').value)throw new Error('Informe início e fim.');
+  return api(movementUrl(id),{method:'PATCH',body:JSON.stringify({
+    value:$('segment-value').value,
+    start_ms:Math.round(Number($('segment-start').value)*1000),
+    end_ms:Math.round(Number($('segment-end').value)*1000)
+  })});
+});
+$('anchor-save').onclick=()=>movementAction(id=>{
+  if(!$('anchor-lat').value||!$('anchor-lon').value)throw new Error('Informe latitude e longitude do alvo.');
+  return api(movementUrl(id)+'/reference',{method:'PUT',body:JSON.stringify({
+    latitude:Number($('anchor-lat').value),longitude:Number($('anchor-lon').value)
+  })});
+});
+$('analyze-movement').onclick=()=>action(async()=>{
+  if(!state)return;const trip=state.trip.id;$('analyze-movement').disabled=true;
+  try{
+    const job=await api('/api/editorial/trips/'+encodeURIComponent(trip)+'/movements',{method:'POST'});
+    let result;
+    do{result=await api('/api/editorial/movement-jobs/'+encodeURIComponent(job.id));$('movement-job').textContent='Movimentos: '+Math.round(result.progress*100)+'%';if(['PENDING','RUNNING'].includes(result.status))await new Promise(resolve=>setTimeout(resolve,1000));}while(['PENDING','RUNNING'].includes(result.status));
+    if(result.status!=='COMPLETE')throw new Error(result.error||'Análise interrompida. Tente novamente.');
+    if(state.trip.id===trip){const ids=[...selected];await loadState();if(state.trip.id===trip)chooseRange(ids.filter(id=>state.assets.some(a=>a.id===id)));}
+    $('movement-job').textContent='Movimentos atualizados. Correções preservadas.';
+  }finally{$('analyze-movement').disabled=false;}
 });
 action(async()=>{
   const trips=await api('/api/editorial/trips');

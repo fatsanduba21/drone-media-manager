@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -9,6 +10,69 @@ from datetime import datetime
 _LAT = re.compile(r"\b(?:latitude|lat)\s*[:=]\s*(-?\d+(?:\.\d+)?)", re.IGNORECASE)
 _LON = re.compile(r"\b(?:longitude|lon|lng)\s*[:=]\s*(-?\d+(?:\.\d+)?)", re.IGNORECASE)
 _DATE = re.compile(r"\b(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:[.,]\d+)?")
+_CUE = re.compile(
+    r"(\d{2,}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2,}):(\d{2}):(\d{2})[,.](\d{3})"
+)
+
+
+@dataclass(frozen=True)
+class TelemetrySample:
+    start_ms: int
+    end_ms: int
+    latitude: float | None = None
+    longitude: float | None = None
+    altitude: float | None = None
+    yaw: float | None = None
+    gimbal_pitch: float | None = None
+    gimbal_yaw: float | None = None
+    heading: float | None = None
+    speed: float | None = None
+
+
+def parse_samples(content: str) -> list[TelemetrySample]:
+    """Keep cue time and available observations; absent fields are never zero."""
+    samples = []
+    for block in re.split(r"\r?\n[ \t]*\r?\n", content):
+        cue = _CUE.search(block)
+        if not cue:
+            continue
+        parts = [int(value) for value in cue.groups()]
+        if any(parts[i] >= 60 for i in (1, 2, 5, 6)):
+            continue
+        start, end = [
+            ((parts[i] * 60 + parts[i + 1]) * 60 + parts[i + 2]) * 1000 + parts[i + 3]
+            for i in (0, 4)
+        ]
+        if end <= start:
+            continue
+
+        def number(names: str, text: str = block) -> float | None:
+            match = re.search(
+                r"\b(?:" + names + r")\s*[:=]\s*(-?\d+(?:\.\d+)?)(?=\s|\]|<|$)",
+                text,
+                re.IGNORECASE,
+            )
+            value = float(match[1]) if match else None
+            return value if value is not None and math.isfinite(value) else None
+
+        lat, lon = number("latitude|lat"), number("longitude|lon|lng")
+        if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            lat = lon = None
+        samples.append(
+            TelemetrySample(
+                start,
+                end,
+                lat,
+                lon,
+                number("rel_alt|relative_altitude|altitude"),
+                number("drone_yaw|yaw"),
+                number("gimbal_pitch|gb_pitch"),
+                number("gimbal_yaw|gb_yaw"),
+                number("heading"),
+                number("hs|speed"),
+            )
+        )
+    return samples
 
 
 @dataclass(frozen=True)

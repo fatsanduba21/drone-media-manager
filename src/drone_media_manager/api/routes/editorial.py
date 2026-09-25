@@ -32,6 +32,7 @@ from drone_media_manager.grouping.repository import (
     range_center,
     rename_group,
 )
+from drone_media_manager.movement.models import MovementAnalysis
 
 
 class RangeRequest(BaseModel):
@@ -107,6 +108,15 @@ def editorial_router(
                 raise HTTPException(404, detail={"code": "trip_not_found"})
             assets = ordered_assets(session, trip_id)
             ids = [asset.id for asset in assets]
+            movements = {
+                row.catalog_asset_id: row
+                for row in session.scalars(
+                    select(MovementAnalysis).where(
+                        MovementAnalysis.catalog_asset_id.in_(ids),
+                        MovementAnalysis.superseded_at.is_(None),
+                    )
+                )
+            }
             originals = (
                 {
                     row.catalog_asset_id: row
@@ -147,7 +157,7 @@ def editorial_router(
                 .order_by(GroupingSuggestion.created_at, GroupingSuggestion.id)
             ).all()
             return {
-                "trip": {"id": trip.id, "name": trip.name},
+                "trip": {"id": trip.id, "name": trip.name, "slug": trip.slug},
                 "assets": [
                     {
                         "id": asset.id,
@@ -155,6 +165,10 @@ def editorial_router(
                         "filename": Path(originals[asset.id].rel_path).name,
                         "media_type": asset.media_type,
                         "location_group_id": asset.location_group_id,
+                        "movement_final": asset.movement,
+                        "movement_suggested": movements[asset.id].value
+                        if asset.id in movements
+                        else None,
                         "thumbnail_url": (
                             f"/api/editorial/assets/{asset.id}/thumbnail"
                             if asset.id in thumbnails

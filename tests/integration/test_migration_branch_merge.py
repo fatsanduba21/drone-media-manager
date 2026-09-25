@@ -74,7 +74,7 @@ def test_existing_branch_head_upgrades_without_losing_data(
         assert {"location_groups", "grouping_suggestions", "telemetry_tracks"} <= tables
         assert database.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchall() == [("0008_capture_time",)]
+        ).fetchall() == [("0009_movement",)]
         assert "provider_place_id" in {
             row[1] for row in database.execute("PRAGMA table_info(location_groups)")
         }
