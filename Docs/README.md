@@ -4,7 +4,8 @@
 2. [Contrato de storage e manifesto](architecture/STORAGE_CONTRACTS.md) — único layout para código novo.
 3. [Inventário legado e schema](architecture/LEGACY_INVENTORY.md) — classificação de componentes e tabelas.
 4. Runbooks atuais em `operations/`: `windows-organize.md`, `mac-server.md`,
-   `derivatives.md`, `phase-2d.md`, `grouping.md` e `location-names.md`.
+   `derivatives.md`, `phase-2d.md`, `grouping.md`, `location-names.md` e
+   [movimento (3C)](operations/movement.md).
 5. Checkpoints em `FASE_*_CHECKPOINT_*.md` e `FASE_1_ACEITE_REAL_2026-09-22.md`.
 
 O [estado pré-3C](PRE_3C_STATUS_2026-09-24.md) e o
