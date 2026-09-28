@@ -30,6 +30,7 @@ class ServerSettings(_BaseSettings):
     database_path: Path
     omv_root: Path
     derivatives_root: Path | None = None
+    selects_root: Path | None = None
     bind_host: str = "127.0.0.1"
     port: int = 8000
     allow_insecure_lan: bool = False
@@ -74,6 +75,14 @@ class ServerSettings(_BaseSettings):
         if resolved_derivatives_root.is_relative_to(resolved_omv_root):
             raise ValueError("Derivatives cache must not be under the OMV root")
         self.derivatives_root = resolved_derivatives_root
+        selects_root = (
+            (self.selects_root or resolved_database_path.parent / "selects")
+            .expanduser()
+            .resolve(strict=False)
+        )
+        if selects_root.is_relative_to(resolved_omv_root):
+            raise ValueError("Select exports must not be under the read-only OMV root")
+        self.selects_root = selects_root
 
         for synced_root in self.synced_roots:
             resolved_synced_root = synced_root.expanduser().resolve(strict=False)
@@ -85,6 +94,8 @@ class ServerSettings(_BaseSettings):
                 raise ValueError(
                     "Derivatives cache must not be under a synchronized root"
                 )
+            if selects_root.is_relative_to(resolved_synced_root):
+                raise ValueError("Select exports must not be under a synchronized root")
 
         if (self.tls_certfile is None) != (self.tls_keyfile is None):
             raise ValueError(

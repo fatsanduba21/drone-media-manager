@@ -47,11 +47,12 @@ h2{font:normal 25px/1.2 Georgia,serif;margin:0}.hint{color:var(--muted);font-siz
 #status{min-height:22px;margin:0 0 14px;color:var(--warm)}#status.error{color:#ff9d87}
 #movement-panel{margin-top:24px}#movement-panel pre{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);font-size:12px}.movement-fields{display:flex;gap:12px;flex-wrap:wrap;align-items:end}.movement-fields .field{flex:1;min-width:120px}.movement-fields input,.movement-fields select{width:100%}.segment-row{padding:12px 0;border-top:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap}.segment-row span{flex:1}.segment-row button{min-height:36px}details{margin-top:14px}summary{cursor:pointer}#movement-job{color:var(--accent)}
 #scores-panel{margin-bottom:28px}#scores-panel>summary{font:25px Georgia,serif}#scores-panel .toolbar{margin-top:18px}.score-weights{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}.score-weights input{width:105px}.score-table-wrap{overflow-x:auto}.score-table{border-collapse:collapse;width:100%;font-size:13px}.score-table th,.score-table td{padding:12px 9px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}.score-table th{color:var(--muted);font-size:11px}.score-table caption{text-align:left;color:var(--warm);padding:8px}.score-table .rank-score{font:24px Georgia,serif;color:var(--accent)}.score-table a{color:var(--accent)}.score-table small{display:block;color:var(--muted)}.score-table pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:400px}.score-table button{font-size:12px;padding:5px 8px;min-height:34px}#score-status{color:var(--warm)}
+#selects-panel{margin-bottom:28px}#selects-panel>summary{font:25px Georgia,serif}.select-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}.select-row{border:1px solid var(--line);padding:14px;min-width:0}.select-row strong,.select-row small{display:block;overflow-wrap:anywhere}.select-row small{color:var(--muted);margin:5px 0}.select-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.select-actions button{font-size:12px;min-height:36px}.select-range{display:flex;gap:8px;margin-top:10px}.select-range .field{min-width:0;flex:1}.select-range input{width:100%}#selects-status,#selects-export-status{color:var(--warm);overflow-wrap:anywhere}
 @media(max-width:950px){.workspace{grid-template-columns:1fr}.side{position:static;grid-template-columns:repeat(auto-fit,minmax(270px,1fr))}}
 </style>
 </head>
 <body>
-<header><div class="mark"><span aria-hidden="true"></span><div class="brand">Drone<br>Media Manager</div></div><div class="phase">Editorial / Fase 3E</div></header>
+<header><div class="mark"><span aria-hidden="true"></span><div class="brand">Drone<br>Media Manager</div></div><div class="phase">Editorial / Fase 3F</div></header>
 <main>
 <h1>Organize a viagem<br>por contexto.</h1>
 <p class="lead">Revise tomadas em sequência. Escolha um nome sugerido ou escreva o seu; a confirmação final fica sob seu controle.</p>
@@ -76,6 +77,13 @@ h2{font:normal 25px/1.2 Georgia,serif;margin:0}.hint{color:var(--muted);font-siz
 <details><summary>Editar pesos do perfil</summary><p>Pesos relativos, normalizados pelos componentes disponíveis. Zero desativa um componente. Pessoas favorece presença; duração favorece takes de até 10 s ou mais. Composição ainda não é avaliada.</p><div id="score-weights" class="score-weights"></div><button id="save-score-profile" class="action" type="button">Salvar pesos</button></details>
 <p id="score-status" role="status" aria-live="polite">Escolha uma viagem para começar.</p>
 <div class="score-table-wrap"><table class="score-table"><caption>Ordenado por score editorial · “—” significa sem evidência. Compare também a cobertura dos pesos.</caption><thead><tr><th scope="col">Tomada / contexto</th><th scope="col">Editorial</th><th scope="col">Técnica</th><th scope="col">Movimento</th><th scope="col">Composição</th><th scope="col">Unicidade</th><th scope="col">Pessoas</th><th scope="col">Duração</th><th scope="col">Takes semelhantes</th></tr></thead><tbody id="score-results"></tbody></table></div>
+</details>
+<details id="selects-panel" class="panel" open>
+<summary>Selects para exportar</summary>
+<p>Gere candidatos a partir do ranking e dos movimentos. Revise cada sugestão; só escolhas confirmadas entram na pasta de exportação.</p>
+<div class="toolbar"><button id="generate-selects" class="action primary" type="button">Gerar candidatos</button><button id="refresh-selects" class="action" type="button">Atualizar</button><div class="field"><label for="selects-mode">Modo de corte</label><select id="selects-mode"><option value="FAST">FAST · rápido, keyframes</option><option value="ACCURATE">ACCURATE · reencode</option></select></div><button id="export-selects" class="action" type="button" disabled>Exportar confirmados</button></div>
+<p id="selects-status" role="status" aria-live="polite"></p><p id="selects-export-status" role="status" aria-live="polite"></p>
+<div id="selects-list" class="select-list"></div>
 </details>
 <div class="workspace">
 <section aria-label="Grade de arquivos">
@@ -144,7 +152,7 @@ async function api(url, options={}){
   const headers={'Content-Type':'application/json',...(options.headers||{})};
   if(method!=='GET'&&method!=='HEAD')headers['X-CSRF-Token']=csrfToken;
   const response=await fetch(url,{...options,headers});
-  if(!response.ok){let data={};try{data=await response.json()}catch{};throw new Error(data.error?.code||'Falha na operação');}
+  if(!response.ok){let data={};try{data=await response.json()}catch{};throw new Error(data.error?.code||data.detail?.code||'Falha na operação');}
   return response.json();
 }
 function range(start,end){
@@ -279,7 +287,7 @@ function render(){
   }
   if(!state.groups.length)groups.textContent='Nenhum grupo confirmado.';
 }
-async function loadState(){const trip=$('trip').value;const result=await api('/api/editorial/trips/'+encodeURIComponent(trip));if(trip!==$('trip').value)return;state=result;selected=[];anchor=null;clearCandidates();render();populateBatchEditor();await loadMovement();await loadScores();}
+async function loadState(){const trip=$('trip').value;const result=await api('/api/editorial/trips/'+encodeURIComponent(trip));if(trip!==$('trip').value)return;state=result;selected=[];anchor=null;clearCandidates();render();populateBatchEditor();await loadMovement();await loadScores();await loadSelects();}
 async function createGroup(){
   const bounds=selectionBounds();if(!bounds)return;
   const name=$('name').value.trim();if(!name){notice('Digite ou escolha um nome antes de confirmar.',true);$('name').focus();return;}
@@ -450,6 +458,47 @@ $('calculate-scores').onclick=()=>action(async()=>{
     do{result=await api('/api/editorial/score-jobs/'+encodeURIComponent(job.id));if(state.trip.id!==trip)return;$('score-status').textContent='Calculando ranking: '+Math.round(result.progress*100)+'%';if(['PENDING','RUNNING'].includes(result.status))await new Promise(resolve=>setTimeout(resolve,1000));}while(['PENDING','RUNNING'].includes(result.status));
     await loadScores();
   }finally{scoreBusy=false;$('calculate-scores').disabled=!state;$('score-profile').disabled=false;$('save-score-profile').disabled=false;}
+});
+let selectCandidates=[],selectRequest=0,selectBusy=false;
+const seconds=ms=>ms==null?'—':(ms/1000).toFixed(3)+' s';
+function renderSelects(){
+  const list=$('selects-list');list.replaceChildren();
+  $('export-selects').disabled=selectBusy||!selectCandidates.some(row=>row.status==='INCLUDE');
+  $('selects-status').textContent=selectCandidates.length?selectCandidates.length+' candidatos · '+selectCandidates.filter(row=>row.status==='INCLUDE').length+' confirmados':'Sem candidatos. Calcule o ranking e gere candidatos para esta viagem.';
+  for(const row of selectCandidates){
+    const card=document.createElement('article');card.className='select-row';
+    const asset=state.assets.find(item=>item.id===row.asset_id),link=document.createElement('a');link.textContent=asset?.filename||row.public_asset_id;link.href='/gallery/'+encodeURIComponent(state.trip.slug)+'/assets/'+encodeURIComponent(row.public_asset_id);link.target='_blank';link.rel='noopener';
+    const title=document.createElement('strong');title.append(link);card.append(title);
+    const group=state.groups.find(item=>item.id===asset?.location_group_id);
+    const context=document.createElement('small');context.textContent=(row.suggested?'Sugerido · ':'')+'Score '+(row.score??'—')+' · '+(group?.name||'Sem grupo')+' · '+(row.movement||'Sem movimento')+' · '+(row.subject||'Sem assunto')+' · '+(row.people||'Pessoas desconhecidas');card.append(context);
+    const interval=document.createElement('small');interval.textContent=row.proposed_start_ms<0?'Arquivo inteiro':'Trecho sugerido: '+seconds(row.proposed_start_ms)+' → '+seconds(row.proposed_end_ms);card.append(interval);
+    const status=document.createElement('small');status.textContent={PENDING:'Aguardando revisão',INCLUDE:'Confirmado'+(row.start_ms==null?' · inteiro':' · '+seconds(row.start_ms)+' → '+seconds(row.end_ms)),REJECT:'Rejeitado'}[row.status];card.append(status);
+    const range=document.createElement('div');range.className='select-range';
+    const inputs=[];for(const [label,value] of [['IN',row.start_ms??(row.proposed_start_ms<0?0:row.proposed_start_ms)],['OUT',row.end_ms??(row.proposed_end_ms<0?row.duration_ms:row.proposed_end_ms)]]){const field=document.createElement('div');field.className='field';const name=document.createElement('label');name.textContent=label+' (segundos)';const input=document.createElement('input');input.type='number';input.min=0;input.step='0.001';input.value=value==null?'':(value/1000).toFixed(3);name.append(input);field.append(name);range.append(field);inputs.push(input);}card.append(range);
+    const actions=document.createElement('div');actions.className='select-actions';
+    function button(label,payload){const item=document.createElement('button');item.className='action';item.type='button';item.textContent=label;item.onclick=()=>action(async()=>{await api('/api/editorial/selects/'+encodeURIComponent(row.id),{method:'PATCH',body:JSON.stringify(payload())});await loadSelects();});actions.append(item);}
+    button('Usar inteiro',()=>({status:'INCLUDE',start_ms:-1,end_ms:-1}));
+    if(row.proposed_start_ms>=0)button('Usar trecho',()=>({status:'INCLUDE',start_ms:row.proposed_start_ms,end_ms:row.proposed_end_ms}));
+    button('Salvar IN/OUT',()=>{if(!inputs.every(input=>input.reportValidity()&&input.value!==''))throw new Error('Informe IN e OUT.');return {status:'INCLUDE',start_ms:Math.round(Number(inputs[0].value)*1000),end_ms:Math.round(Number(inputs[1].value)*1000)};});
+    button('Rejeitar',()=>({status:'REJECT'}));card.append(actions);list.append(card);
+  }
+}
+async function loadSelects(){
+  const request=++selectRequest;if(!state)return;const trip=state.trip.id;
+  const data=await api('/api/editorial/trips/'+encodeURIComponent(trip)+'/selects');
+  if(request!==selectRequest||state.trip.id!==trip)return;selectCandidates=data.candidates;renderSelects();
+}
+$('refresh-selects').onclick=()=>action(loadSelects);
+$('generate-selects').onclick=()=>action(async()=>{if(!state)return;const trip=state.trip.id;await api('/api/editorial/trips/'+encodeURIComponent(trip)+'/selects',{method:'POST',body:JSON.stringify({profile:$('score-profile').value})});await loadSelects();notice('Candidatos atualizados. Decisões confirmadas preservadas.');});
+$('export-selects').onclick=()=>action(async()=>{
+  if(!state||selectBusy)return;selectBusy=true;$('export-selects').disabled=true;
+  const trip=state.trip.id;
+  try{
+    const queued=await api('/api/editorial/trips/'+encodeURIComponent(trip)+'/selects/exports',{method:'POST',body:JSON.stringify({mode:$('selects-mode').value})});
+    let job;do{job=await api('/api/editorial/select-export-jobs/'+encodeURIComponent(queued.id));if(state.trip.id!==trip)return;$('selects-export-status').textContent='Exportação: '+Math.round(job.progress*100)+'%';if(['PENDING','RUNNING'].includes(job.status))await new Promise(resolve=>setTimeout(resolve,1000));}while(['PENDING','RUNNING'].includes(job.status));
+    if(job.status!=='COMPLETE')throw new Error(job.error||'Exportação falhou.');
+    $('selects-export-status').textContent='Exportado: '+job.folder+' · '+job.count+' selects. Abra esta pasta no servidor.';
+  }finally{selectBusy=false;renderSelects();}
 });
 action(async()=>{
   scoreProfiles=await api('/api/editorial/score-profiles');renderWeights();

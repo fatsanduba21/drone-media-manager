@@ -21,6 +21,7 @@ from drone_media_manager.api.routes.jobs import job_router
 from drone_media_manager.api.routes.movement import movement_router
 from drone_media_manager.api.routes.scoring import scoring_router
 from drone_media_manager.api.routes.selection import selection_router
+from drone_media_manager.api.routes.selects import selects_router
 from drone_media_manager.api.routes.sources import source_router
 from drone_media_manager.api.routes.workers import worker_router
 from drone_media_manager.config import ServerSettings
@@ -29,6 +30,9 @@ from drone_media_manager.logging import configure_logging
 from drone_media_manager.movement.repository import interrupt_jobs
 from drone_media_manager.scoring.repository import (
     interrupt_jobs as interrupt_score_jobs,
+)
+from drone_media_manager.selects.repository import (
+    interrupt_jobs as interrupt_select_jobs,
 )
 from drone_media_manager.time import utc_now
 
@@ -103,6 +107,7 @@ def create_app(settings: ServerSettings, sessions: sessionmaker[Session]) -> Fas
         recover_on_startup(sessions, utc_now())
         interrupt_jobs(sessions)
         interrupt_score_jobs(sessions)
+        interrupt_select_jobs(sessions)
 
     @app.exception_handler(HTTPException)
     async def stable_http_error(_: Request, error: HTTPException) -> JSONResponse:
@@ -144,6 +149,7 @@ def create_app(settings: ServerSettings, sessions: sessionmaker[Session]) -> Fas
     app.include_router(editorial_router(settings, sessions))
     app.include_router(movement_router(settings, sessions))
     app.include_router(scoring_router(settings, sessions))
+    app.include_router(selects_router(settings, sessions))
 
     @app.middleware("http")
     async def protect_browser_routes(request: Request, call_next: Any) -> Response:

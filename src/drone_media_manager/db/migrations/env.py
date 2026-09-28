@@ -11,7 +11,8 @@ import drone_media_manager.db.models.core
 import drone_media_manager.editorial.models
 import drone_media_manager.grouping.models
 import drone_media_manager.movement.models
-import drone_media_manager.scoring.models  # noqa: F401
+import drone_media_manager.scoring.models
+import drone_media_manager.selects.models  # noqa: F401
 from drone_media_manager.config import ServerSettings
 from drone_media_manager.db.base import Base
 from drone_media_manager.db.session import create_engine_from_settings
