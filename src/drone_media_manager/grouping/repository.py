@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from dataclasses import replace
+from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -14,6 +15,11 @@ from drone_media_manager.catalog.importer import resolve_omv_path
 from drone_media_manager.config import ServerSettings
 from drone_media_manager.db.models.catalog import AssetFile, CatalogAsset
 from drone_media_manager.db.models.core import AuditEvent
+from drone_media_manager.grouping.embedded import (
+    EMBEDDED_PARSER_VERSION,
+    read_embedded_samples,
+    summarize,
+)
 from drone_media_manager.grouping.models import (
     GroupingSuggestion,
     LocationGroup,
@@ -86,50 +92,46 @@ def _timestamp(asset: CatalogAsset) -> datetime | None:
         return None
 
 
-def _summary(
-    session: Session,
-    settings: ServerSettings,
-    asset: CatalogAsset,
-    srt: AssetFile | None,
-) -> TelemetrySummary:
-    if srt is None or srt.availability_status != "AVAILABLE":
-        return TelemetrySummary(0)
-    cached = session.scalar(
-        select(TelemetryTrack).where(TelemetryTrack.catalog_asset_id == asset.id)
-    )
+def _cached_summary(
+    cached: TelemetryTrack | None, source_sha256: str, parser_version: str
+) -> TelemetrySummary | None:
     if (
-        cached is not None
-        and cached.source_sha256 == srt.sha256
-        and cached.parser_version == PARSER_VERSION
+        cached is None
+        or cached.source_sha256 != source_sha256
+        or cached.parser_version != parser_version
     ):
-        return TelemetrySummary(
-            cached.sample_count,
-            cached.start_lat,
-            cached.start_lon,
-            cached.end_lat,
-            cached.end_lon,
-            cached.centroid_lat,
-            cached.centroid_lon,
-            cached.start_time,
-            cached.end_time,
-        )
-    path = resolve_omv_path(settings.omv_root, srt.rel_path)
-    try:
-        if path.stat().st_size > MAX_SRT_BYTES:
-            return TelemetrySummary(0)
-        summary = parse_srt(path.read_text(encoding="utf-8-sig", errors="replace"))
-    except OSError:
-        return TelemetrySummary(0)
+        return None
+    return TelemetrySummary(
+        cached.sample_count,
+        cached.start_lat,
+        cached.start_lon,
+        cached.end_lat,
+        cached.end_lon,
+        cached.centroid_lat,
+        cached.centroid_lon,
+        cached.start_time,
+        cached.end_time,
+    )
+
+
+def _store_summary(
+    session: Session,
+    cached: TelemetryTrack | None,
+    asset: CatalogAsset,
+    source_sha256: str,
+    parser_version: str,
+    summary: TelemetrySummary,
+) -> None:
     row = cached or TelemetryTrack(
         catalog_asset_id=asset.id,
-        parser_version=PARSER_VERSION,
-        source_sha256=srt.sha256,
+        parser_version=parser_version,
+        source_sha256=source_sha256,
         sample_count=0,
     )
     if cached is None:
         session.add(row)
-    row.parser_version = PARSER_VERSION
-    row.source_sha256 = srt.sha256
+    row.parser_version = parser_version
+    row.source_sha256 = source_sha256
     row.sample_count = summary.sample_count
     for field in (
         "start_time",
@@ -143,6 +145,71 @@ def _summary(
     ):
         setattr(row, field, getattr(summary, field))
     row.updated_at = utc_now()
+
+
+def _embedded_summary(
+    session: Session,
+    settings: ServerSettings,
+    asset: CatalogAsset,
+    original: AssetFile | None,
+    cached: TelemetryTrack | None,
+) -> TelemetrySummary:
+    """GPS from the MP4 ``djmd`` track when the clip has no usable SRT."""
+    if (
+        original is None
+        or asset.media_type != "VIDEO"
+        or original.availability_status != "AVAILABLE"
+        or Path(original.rel_path).suffix.lower() != ".mp4"
+    ):
+        return TelemetrySummary(0)
+    hit = _cached_summary(cached, original.sha256, EMBEDDED_PARSER_VERSION)
+    if hit is not None:
+        return hit
+    try:
+        path = resolve_omv_path(settings.omv_root, original.rel_path)
+    except ValueError:
+        return TelemetrySummary(0)
+    samples = read_embedded_samples(path)
+    summary = summarize(samples)
+    if not summary.sample_count:
+        # Not cached: a missing ffprobe or an unmounted share must not stick.
+        return summary
+    start = _timestamp(asset)
+    if start is not None:
+        summary = replace(
+            summary,
+            start_time=start,
+            end_time=start + timedelta(milliseconds=samples[-1].end_ms),
+        )
+    _store_summary(
+        session, cached, asset, original.sha256, EMBEDDED_PARSER_VERSION, summary
+    )
+    return summary
+
+
+def _summary(
+    session: Session,
+    settings: ServerSettings,
+    asset: CatalogAsset,
+    srt: AssetFile | None,
+    original: AssetFile | None = None,
+) -> TelemetrySummary:
+    cached = session.scalar(
+        select(TelemetryTrack).where(TelemetryTrack.catalog_asset_id == asset.id)
+    )
+    if srt is None or srt.availability_status != "AVAILABLE":
+        return _embedded_summary(session, settings, asset, original, cached)
+    hit = _cached_summary(cached, srt.sha256, PARSER_VERSION)
+    if hit is not None:
+        return hit
+    path = resolve_omv_path(settings.omv_root, srt.rel_path)
+    try:
+        if path.stat().st_size > MAX_SRT_BYTES:
+            return TelemetrySummary(0)
+        summary = parse_srt(path.read_text(encoding="utf-8-sig", errors="replace"))
+    except OSError:
+        return TelemetrySummary(0)
+    _store_summary(session, cached, asset, srt.sha256, PARSER_VERSION, summary)
     return summary
 
 
@@ -155,7 +222,9 @@ def analyze_trip(
     clips = []
     for asset in assets:
         original = files[asset.id]["ORIGINAL"]
-        telemetry = _summary(session, settings, asset, files[asset.id].get("SRT"))
+        telemetry = _summary(
+            session, settings, asset, files[asset.id].get("SRT"), original
+        )
         clips.append(
             ClipSignal(
                 asset.id,

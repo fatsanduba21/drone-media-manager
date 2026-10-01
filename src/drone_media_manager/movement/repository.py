@@ -17,6 +17,10 @@ from drone_media_manager.config import ServerSettings
 from drone_media_manager.db.models.catalog import AssetFile, CatalogAsset
 from drone_media_manager.db.models.core import AuditEvent, Job
 from drone_media_manager.db.models.ingest import Trip
+from drone_media_manager.grouping.embedded import (
+    EMBEDDED_PARSER_VERSION,
+    read_embedded_samples,
+)
 from drone_media_manager.grouping.repository import MAX_SRT_BYTES
 from drone_media_manager.grouping.telemetry import TelemetrySample, parse_samples
 from drone_media_manager.movement.classifier import (
@@ -32,30 +36,69 @@ PARSER_VERSION = "srt-motion-v1"
 JOB_KIND = "CLASSIFY_MOVEMENT"
 
 
-def _samples(
-    session: Session, settings: ServerSettings, asset_id: str
-) -> tuple[list[TelemetrySample], str | None]:
-    srt = session.scalar(
-        select(AssetFile).where(
-            AssetFile.catalog_asset_id == asset_id, AssetFile.role == "SRT"
-        )
-    )
-    if srt is None or srt.availability_status in {"HASH_MISMATCH", "UNVERIFIED"}:
-        return [], None
+def _cached_samples(
+    session: Session, asset_id: str, source_sha256: str, parser_version: str
+) -> list[TelemetrySample] | None:
     cached = session.scalar(
         select(MovementAnalysis)
         .where(
             MovementAnalysis.catalog_asset_id == asset_id,
-            MovementAnalysis.source_sha256 == srt.sha256,
-            MovementAnalysis.parser_version == PARSER_VERSION,
+            MovementAnalysis.source_sha256 == source_sha256,
+            MovementAnalysis.parser_version == parser_version,
         )
         .order_by(MovementAnalysis.created_at.desc())
         .limit(1)
     )
     if cached and cached.samples_json != "[]":
-        return [
-            TelemetrySample(**item) for item in json.loads(cached.samples_json)
-        ], srt.sha256
+        return [TelemetrySample(**item) for item in json.loads(cached.samples_json)]
+    return None
+
+
+def _embedded_telemetry(
+    session: Session, settings: ServerSettings, asset_id: str
+) -> tuple[list[TelemetrySample], str | None, str]:
+    original = session.scalar(
+        select(AssetFile).where(
+            AssetFile.catalog_asset_id == asset_id, AssetFile.role == "ORIGINAL"
+        )
+    )
+    if (
+        original is None
+        or original.availability_status != "AVAILABLE"
+        or not original.rel_path.lower().endswith(".mp4")
+    ):
+        return [], None, PARSER_VERSION
+    cached = _cached_samples(
+        session, asset_id, original.sha256, EMBEDDED_PARSER_VERSION
+    )
+    if cached is not None:
+        return cached, original.sha256, EMBEDDED_PARSER_VERSION
+    try:
+        path = resolve_omv_path(settings.omv_root, original.rel_path)
+    except ValueError:
+        return [], None, PARSER_VERSION
+    samples = read_embedded_samples(path)
+    if not samples:
+        return [], None, PARSER_VERSION
+    return samples, original.sha256, EMBEDDED_PARSER_VERSION
+
+
+def _telemetry(
+    session: Session, settings: ServerSettings, asset_id: str
+) -> tuple[list[TelemetrySample], str | None, str]:
+    """SRT samples when present, else the MP4 ``djmd`` track; with parser version."""
+    srt = session.scalar(
+        select(AssetFile).where(
+            AssetFile.catalog_asset_id == asset_id, AssetFile.role == "SRT"
+        )
+    )
+    if srt is None:
+        return _embedded_telemetry(session, settings, asset_id)
+    if srt.availability_status in {"HASH_MISMATCH", "UNVERIFIED"}:
+        return [], None, PARSER_VERSION
+    cached = _cached_samples(session, asset_id, srt.sha256, PARSER_VERSION)
+    if cached is not None:
+        return cached, srt.sha256, PARSER_VERSION
     try:
         path = resolve_omv_path(settings.omv_root, srt.rel_path)
         with path.open("rb") as handle:
@@ -64,10 +107,21 @@ def _samples(
             len(content) > MAX_SRT_BYTES
             or hashlib.sha256(content).hexdigest() != srt.sha256
         ):
-            return [], None
+            return [], None, PARSER_VERSION
     except (OSError, ValueError):
-        return [], None
-    return parse_samples(content.decode("utf-8-sig", errors="replace")), srt.sha256
+        return [], None, PARSER_VERSION
+    return (
+        parse_samples(content.decode("utf-8-sig", errors="replace")),
+        srt.sha256,
+        PARSER_VERSION,
+    )
+
+
+def _samples(
+    session: Session, settings: ServerSettings, asset_id: str
+) -> tuple[list[TelemetrySample], str | None]:
+    samples, source_hash, _ = _telemetry(session, settings, asset_id)
+    return samples, source_hash
 
 
 def analyze_asset(
@@ -76,10 +130,10 @@ def analyze_asset(
     asset = session.get(CatalogAsset, asset_id)
     if asset is None:
         raise ValueError("asset_not_found")
-    samples, source_hash = (
-        _samples(session, settings, asset_id)
+    samples, source_hash, parser_version = (
+        _telemetry(session, settings, asset_id)
         if asset.media_type == "VIDEO"
-        else ([], None)
+        else ([], None, PARSER_VERSION)
     )
     review = session.scalar(
         select(MovementReview).where(
@@ -111,7 +165,7 @@ def analyze_asset(
         value=suggestion.value,
         confidence=suggestion.confidence,
         algorithm_version=ALGORITHM_VERSION,
-        parser_version=PARSER_VERSION,
+        parser_version=parser_version,
         source_sha256=source_hash,
         evidence_json=json.dumps(suggestion.evidence),
         samples_json=json.dumps([asdict(sample) for sample in samples]),

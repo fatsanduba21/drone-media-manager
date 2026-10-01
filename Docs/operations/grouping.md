@@ -27,7 +27,8 @@ A página e a API editorial exigem HTTPS e a sessão autenticada da galeria, inc
 - Informe um nome e clique em **Criar grupo**. Na fase 3B, **Sugerir nomes próximos** oferece candidatos quando houver GPS e Google Places configurado; veja [nomes de Local / Grupo](location-names.md).
 - Para incluir outro lote no mesmo grupo, selecione o intervalo, escolha o grupo existente e clique em **Adicionar seleção ao grupo**. Os membros anteriores permanecem no grupo, mesmo quando os lotes não são adjacentes.
 - Para refazer os membros de um grupo, selecione o intervalo desejado e clique em **Substituir membros do grupo**. Esta ação remove do grupo os membros fora da seleção.
-- Uma viagem sem SRT continua organizável pela ordem dos arquivos, thumbnails e intervalos manuais. Se um thumbnail estiver ausente, a grade mostra o nome do arquivo e um aviso; gere novamente os derivados.
+- Sem SRT, a análise lê o GPS gravado pelo DJI dentro do próprio MP4 (trilha `djmd`, um registro por frame), via `ffprobe`/`ffmpeg` no Mac. O formato foi validado no DJI Flip contra o SRT do mesmo clipe (posição, altitude relativa e gimbal); outros modelos podem não ser reconhecidos. O resultado fica em cache por SHA-256 do original e alimenta agrupamento, sugestão de nomes e movimento. Segmentos exportados pelo LosslessCut não carregam essa trilha; use os originais.
+- Uma viagem sem SRT e sem GPS embutido continua organizável pela ordem dos arquivos, thumbnails e intervalos manuais. Se um thumbnail estiver ausente, a grade mostra o nome do arquivo e um aviso; gere novamente os derivados.
 
 Reprocessar não modifica grupos confirmados. Cada execução guarda novas sugestões e marca as anteriores como substituídas. A interface não mostra percentuais de confiança porque o algoritmo inicial ainda não foi calibrado com viagens reais.
 
