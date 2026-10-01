@@ -140,6 +140,55 @@ def decode_packets(packets: Iterable[tuple[int, int, bytes]]) -> list[TelemetryS
     return samples
 
 
+_FRAME = 3
+_FRAME_CLOCK_US = (1, 2)
+
+
+def decode_track(data: bytes) -> list[TelemetrySample]:
+    """Decode a raw ``djmd`` dump such as LosslessCut's ``-stream-N-data-djmd.bin``.
+
+    The dump is the concatenation of per-frame messages: one top-level field 3
+    per frame whose header carries a microsecond clock, which gives timing
+    without the MP4 container.
+    """
+    if len(data) > MAX_TRACK_BYTES:
+        return []
+    frames: list[tuple[int, bytes]] = []
+    index = 0
+    try:
+        while index < len(data):
+            start = index
+            key, index = _varint(data, index)
+            if key & 7 != 2:
+                return []
+            size, index = _varint(data, index)
+            index += size
+            if index > len(data):
+                return []
+            if key >> 3 != _FRAME:
+                continue
+            clock = _path(data[start:index], (_FRAME, *_FRAME_CLOCK_US))
+            if not isinstance(clock, int):
+                return []
+            frames.append((clock, data[start:index]))
+    except ValueError:
+        return []
+    if not frames:
+        return []
+    origin = frames[0][0]
+    starts = [round((clock - origin) / 1000) for clock, _ in frames]
+    step = (
+        max(1, round((starts[-1] - starts[0]) / (len(starts) - 1)))
+        if len(starts) > 1
+        else 1
+    )
+    ends = [*starts[1:], starts[-1] + step]
+    return decode_packets(
+        (start, end, payload)
+        for start, end, (_, payload) in zip(starts, ends, frames, strict=True)
+    )
+
+
 def read_embedded_samples(
     path: Path, *, runner: Runner = subprocess.run
 ) -> list[TelemetrySample]:
