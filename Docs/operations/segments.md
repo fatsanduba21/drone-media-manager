@@ -13,6 +13,30 @@ uv run dmm-segments srt "D:\Drone_Temp\Caconde\01-Cristo\Editados"          # si
 uv run dmm-segments srt "D:\Drone_Temp\Caconde\01-Cristo\Editados" --apply  # grava os .SRT
 ```
 
+## Sugestão de cortes antes de abrir no LosslessCut
+
+`dmm-segments suggest` cria, para cada MP4 original, um projeto
+`<original>-proj.llc` com o início e o fim parados já marcados como
+descartados e o trecho em movimento selecionado. Ao abrir o vídeo, o
+LosslessCut carrega o projeto da pasta de saída; ajuste os pontos e divida os
+takes normalmente.
+
+```powershell
+uv run dmm-segments suggest "D:\Drone_Temp\Caconde\03-Assunto" --output "D:\Drone_Temp\Caconde\03-Assunto\Editados"
+uv run dmm-segments suggest "D:\Drone_Temp\Caconde\03-Assunto" --output "D:\Drone_Temp\Caconde\03-Assunto\Editados" --apply
+```
+
+Um projeto existente nunca é substituído (status `EXISTS`); `NO_MOTION`
+indica um clipe sem trecho em movimento de pelo menos 2 s.
+
+A regra foi calibrada com 22 cortes manuais do DJI Flip (Caconde): em
+movimento significa ≥ 0,3 m/s na horizontal, ≥ 0,5 m/s na vertical ou ≥ 2°/s
+de gimbal por 1 s, e o trecho mantido começa 0,5 s depois do início do
+movimento. Resultado contra os cortes manuais: início a até 1 s em 13 de 22 e
+fim a até 1 s em 15 de 22; os demais foram cortes por conteúdo (cena, enquadramento),
+que a telemetria não prevê. As divisões internas entre takes não coincidiram
+com nenhuma mudança de telemetria e continuam manuais.
+
 ## Fonte da telemetria
 
 Para cada segmento, na pasta do segmento e na pasta acima, nesta ordem:

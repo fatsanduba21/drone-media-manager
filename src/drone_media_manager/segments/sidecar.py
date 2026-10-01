@@ -21,6 +21,7 @@ from typing import Any
 
 from drone_media_manager.grouping.embedded import decode_track, read_embedded_samples
 from drone_media_manager.grouping.telemetry import TelemetrySample, parse_samples
+from drone_media_manager.segments.trim import losslesscut_project, suggest_trim
 
 _SEGMENT = re.compile(
     r"^(?P<stem>.+?)-(?P<start>\d{2}\.\d{2}\.\d{2}\.\d{3})"
@@ -269,6 +270,77 @@ def write_sidecar(plan: SidecarPlan) -> str:
         return plan.status
     try:
         with plan.sidecar.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(plan.content)
+    except FileExistsError:
+        return "EXISTS"
+    return "CREATED"
+
+
+@dataclass(frozen=True)
+class ProjectPlan:
+    original: Path
+    project: Path
+    status: str
+    source: str | None = None
+    keep_start_ms: int | None = None
+    keep_end_ms: int | None = None
+    duration_ms: int | None = None
+    content: str | None = None
+
+
+def plan_projects(folder: Path, output: Path | None = None) -> list[ProjectPlan]:
+    """Suggest a LosslessCut project per original clip; never writes.
+
+    LosslessCut loads ``<name>-proj.llc`` from its output folder, so ``output``
+    should be the folder it exports to. Existing projects are left untouched.
+    """
+    target_dir = output or folder
+    plans = []
+    for original in sorted(folder.iterdir(), key=lambda p: p.name.casefold()):
+        if (
+            not original.is_file()
+            or original.suffix.lower() != ".mp4"
+            or parse_segment_name(original.name) is not None
+        ):
+            continue
+        project = target_dir / f"{original.stem}-proj.llc"
+        if project.exists():
+            plans.append(ProjectPlan(original, project, "EXISTS"))
+            continue
+        samples, source = find_parent_telemetry(folder, original.stem)
+        if not samples:
+            plans.append(ProjectPlan(original, project, "NO_TELEMETRY"))
+            continue
+        duration = max(s.end_ms for s in samples)
+        keep = suggest_trim(samples)
+        if keep is None:
+            plans.append(
+                ProjectPlan(
+                    original, project, "NO_MOTION", source, duration_ms=duration
+                )
+            )
+            continue
+        plans.append(
+            ProjectPlan(
+                original,
+                project,
+                "CREATE",
+                source,
+                keep[0],
+                keep[1],
+                duration,
+                losslesscut_project(original.name, duration, keep),
+            )
+        )
+    return plans
+
+
+def write_project(plan: ProjectPlan) -> str:
+    """Create the project exclusively; the editor's own projects are never replaced."""
+    if plan.status != "CREATE" or plan.content is None:
+        return plan.status
+    try:
+        with plan.project.open("x", encoding="utf-8", newline="\n") as handle:
             handle.write(plan.content)
     except FileExistsError:
         return "EXISTS"

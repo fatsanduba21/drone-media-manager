@@ -195,11 +195,11 @@ def test_cli_is_dry_run_unless_apply(
 
     assert main(["srt", str(tmp_path), "--no-probe"]) == 0
     report = json.loads(capsys.readouterr().out)
-    assert report["segments"][0]["status"] == "CREATE"
+    assert report["items"][0]["status"] == "CREATE"
     assert not segment.with_suffix(".SRT").exists()
 
     assert main(["srt", str(tmp_path), "--no-probe", "--apply"]) == 0
-    assert json.loads(capsys.readouterr().out)["segments"][0]["status"] == "CREATED"
+    assert json.loads(capsys.readouterr().out)["items"][0]["status"] == "CREATED"
     assert parse_samples(segment.with_suffix(".SRT").read_text(encoding="utf-8"))
 
     assert main(["srt", str(tmp_path / "missing")]) == 2
