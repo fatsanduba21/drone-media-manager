@@ -19,6 +19,7 @@ from drone_media_manager.catalog.importer import resolve_omv_path
 from drone_media_manager.config import ServerSettings
 from drone_media_manager.db.models.catalog import AssetFile, CatalogAsset, Derivative
 from drone_media_manager.db.models.ingest import Trip
+from drone_media_manager.progress import NULL_PROGRESS, Progress
 from drone_media_manager.time import utc_now
 
 PROFILES = {"THUMBNAIL": "grid-v1", "PROXY": "web-720p-v1"}
@@ -196,6 +197,7 @@ def generate_derivatives(
     *,
     trip_slug: str | None = None,
     renderer: Renderer | None = None,
+    progress: Progress = NULL_PROGRESS,
 ) -> GenerationReport:
     """Process the imported catalog, committing each kind independently."""
     cache = settings.derivatives_root
@@ -211,75 +213,90 @@ def generate_derivatives(
     )
     if trip_slug:
         query = query.where(Trip.slug == trip_slug)
-    for asset, original in session.execute(query).all():
+    progress.stage("Consultando o catálogo", None)
+    rows = session.execute(query).all()
+    progress.stage(
+        "Miniaturas e proxies",
+        sum(2 if asset.media_type == "VIDEO" else 1 for asset, _ in rows),
+        unit="item",
+    )
+    for asset, original in rows:
         kinds = (
             ("THUMBNAIL", "PROXY") if asset.media_type == "VIDEO" else ("THUMBNAIL",)
         )
         for kind in kinds:
-            source_sha = ""
+            progress.note(f"{asset.asset_id[:8]} {kind.lower()}")
             try:
-                if original.availability_status != "AVAILABLE":
-                    raise ValueError(f"original status {original.availability_status}")
-                source = resolve_omv_path(settings.omv_root, original.rel_path)
-                if not source.is_file():
-                    raise FileNotFoundError(str(source))
-                source_sha = _sha256(source)
-                row = _record(session, asset, kind, source_sha)
-                profile = PROFILES[kind]
-                suffix = ".mp4" if kind == "PROXY" else ".jpg"
-                rel_path = f"{asset.asset_id[:2]}/{asset.asset_id}/{profile}{suffix}"
-                target = resolve_omv_path(cache, rel_path)
-                if (
-                    row.status == "READY"
-                    and row.source_sha256 == source_sha
-                    and row.profile_version == profile
-                    and row.rel_path == rel_path
-                    and row.output_sha256 is not None
-                    and target.is_file()
-                    and _sha256(target) == row.output_sha256
-                    and backend.valid(target, kind)
-                ):
-                    report.reused += 1
-                    continue
-                target.parent.mkdir(parents=True, exist_ok=True)
-                descriptor, temp_name = tempfile.mkstemp(
-                    prefix=".dmm-", suffix=".tmp", dir=target.parent
-                )
-                os.close(descriptor)
-                temp = Path(temp_name)
+                source_sha = ""
                 try:
-                    backend.render(source, temp, kind)
-                    if not backend.valid(temp, kind):
-                        raise ValueError("rendered derivative failed validation")
-                    output_sha = _sha256(temp)
-                    size = temp.stat().st_size
-                    os.replace(temp, target)
-                finally:
-                    temp.unlink(missing_ok=True)
-                row.status = "READY"
-                row.source_sha256 = source_sha
-                row.profile_version = profile
-                row.rel_path = rel_path
-                row.output_sha256 = output_sha
-                row.size_bytes = size
-                row.error = None
-                row.updated_at = utc_now()
-                session.commit()
-                report.generated += 1
-            except (
-                OSError,
-                ValueError,
-                RuntimeError,
-                subprocess.SubprocessError,
-            ) as error:
-                session.rollback()
-                row = _record(session, asset, kind, source_sha)
-                row.status = "ERROR"
-                row.source_sha256 = source_sha
-                row.profile_version = PROFILES[kind]
-                row.error = str(error)[:1024]
-                row.updated_at = utc_now()
-                session.commit()
-                report.failed += 1
-                report.errors.append(f"{asset.asset_id} {kind}: {error}")
+                    if original.availability_status != "AVAILABLE":
+                        raise ValueError(
+                            f"original status {original.availability_status}"
+                        )
+                    source = resolve_omv_path(settings.omv_root, original.rel_path)
+                    if not source.is_file():
+                        raise FileNotFoundError(str(source))
+                    source_sha = _sha256(source)
+                    row = _record(session, asset, kind, source_sha)
+                    profile = PROFILES[kind]
+                    suffix = ".mp4" if kind == "PROXY" else ".jpg"
+                    rel_path = (
+                        f"{asset.asset_id[:2]}/{asset.asset_id}/{profile}{suffix}"
+                    )
+                    target = resolve_omv_path(cache, rel_path)
+                    if (
+                        row.status == "READY"
+                        and row.source_sha256 == source_sha
+                        and row.profile_version == profile
+                        and row.rel_path == rel_path
+                        and row.output_sha256 is not None
+                        and target.is_file()
+                        and _sha256(target) == row.output_sha256
+                        and backend.valid(target, kind)
+                    ):
+                        report.reused += 1
+                        continue
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    descriptor, temp_name = tempfile.mkstemp(
+                        prefix=".dmm-", suffix=".tmp", dir=target.parent
+                    )
+                    os.close(descriptor)
+                    temp = Path(temp_name)
+                    try:
+                        backend.render(source, temp, kind)
+                        if not backend.valid(temp, kind):
+                            raise ValueError("rendered derivative failed validation")
+                        output_sha = _sha256(temp)
+                        size = temp.stat().st_size
+                        os.replace(temp, target)
+                    finally:
+                        temp.unlink(missing_ok=True)
+                    row.status = "READY"
+                    row.source_sha256 = source_sha
+                    row.profile_version = profile
+                    row.rel_path = rel_path
+                    row.output_sha256 = output_sha
+                    row.size_bytes = size
+                    row.error = None
+                    row.updated_at = utc_now()
+                    session.commit()
+                    report.generated += 1
+                except (
+                    OSError,
+                    ValueError,
+                    RuntimeError,
+                    subprocess.SubprocessError,
+                ) as error:
+                    session.rollback()
+                    row = _record(session, asset, kind, source_sha)
+                    row.status = "ERROR"
+                    row.source_sha256 = source_sha
+                    row.profile_version = PROFILES[kind]
+                    row.error = str(error)[:1024]
+                    row.updated_at = utc_now()
+                    session.commit()
+                    report.failed += 1
+                    report.errors.append(f"{asset.asset_id} {kind}: {error}")
+            finally:
+                progress.advance()
     return report

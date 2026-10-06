@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from drone_media_manager.organize import apply_plan, build_plan, probe_video
+from drone_media_manager.progress import Progress, terminal_progress
 from drone_media_manager.triage import apply_sort, plan_sort
 
 
@@ -31,13 +32,19 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _sort(args: argparse.Namespace) -> dict[str, Any]:
+def _sort(args: argparse.Namespace, progress: Progress) -> dict[str, Any]:
     folder = Path(args.source)
     if not folder.is_dir():
         raise ValueError(f"source is not a directory: {folder}")
-    moves = plan_sort(folder, prober=lambda path: probe_video(path, args.ffprobe))
+    moves = plan_sort(
+        folder,
+        prober=lambda path: probe_video(path, args.ffprobe),
+        progress=progress,
+    )
     results = (
-        apply_sort(moves) if args.apply else [(move, move.status) for move in moves]
+        apply_sort(moves, progress)
+        if args.apply
+        else [(move, move.status) for move in moves]
     )
     items = [
         {
@@ -72,26 +79,33 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command != "sort" and (not args.trip or not args.output_omv):
         parser.error("plan/apply require --trip and --output-omv")
     try:
-        if args.command == "sort":
-            report = _sort(args)
-        else:
-            plan = build_plan(
-                args.source,
-                args.output_omv,
-                args.trip,
-                args.poi,
-                movement=args.movement,
-                people=args.people,
-                capture_date=args.date,
-                ffprobe=args.ffprobe,
-            )
-            report = plan.preview() if args.command == "plan" else apply_plan(plan)
+        with terminal_progress() as progress:
+            report = _run(args, progress)
     except (OSError, ValueError) as error:
         report = {"status": "ERROR", "errors": [str(error)]}
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if report.get("status") in {"ERROR", "CONFLICT"} or report.get("errors"):
         return 2
     return 0
+
+
+def _run(args: argparse.Namespace, progress: Progress) -> dict[str, Any]:
+    if args.command == "sort":
+        return _sort(args, progress)
+    plan = build_plan(
+        args.source,
+        args.output_omv,
+        args.trip,
+        args.poi,
+        movement=args.movement,
+        people=args.people,
+        capture_date=args.date,
+        ffprobe=args.ffprobe,
+        progress=progress,
+    )
+    if args.command == "plan":
+        return plan.preview(progress)
+    return apply_plan(plan, progress)
 
 
 if __name__ == "__main__":

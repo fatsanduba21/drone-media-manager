@@ -11,6 +11,7 @@ from drone_media_manager.cli.server import alembic_config, verify_database_revis
 from drone_media_manager.config import get_server_settings
 from drone_media_manager.db.session import create_engine_from_settings, session_factory
 from drone_media_manager.derivatives.service import generate_derivatives
+from drone_media_manager.progress import terminal_progress
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -22,8 +23,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     engine = create_engine_from_settings(settings)
     try:
         verify_database_revision(engine, alembic_config(settings))
-        with session_factory(engine)() as session:
-            report = generate_derivatives(session, settings, trip_slug=args.trip)
+        with session_factory(engine)() as session, terminal_progress() as progress:
+            report = generate_derivatives(
+                session, settings, trip_slug=args.trip, progress=progress
+            )
         print(json.dumps(asdict(report), ensure_ascii=False, sort_keys=True))
         return 2 if report.failed else 0
     finally:

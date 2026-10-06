@@ -17,6 +17,8 @@ dependencies = [
     "keyring",
     "pillow",
     "argon2-cffi>=25.1.0",
+    "tqdm>=4.70.1",
+    "halo>=0.0.31",
 ]
 
 [project.scripts]
@@ -33,6 +35,7 @@ dev = [
     "pytest-cov",
     "ruff",
     "mypy",
+    "types-tqdm>=4.70.0.20260906",
 ]
 
 [tool.pytest.ini_options]

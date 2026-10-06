@@ -16,6 +16,7 @@ from drone_media_manager.catalog.importer import (
 from drone_media_manager.cli.server import alembic_config, verify_database_revision
 from drone_media_manager.config import ServerSettings, get_server_settings
 from drone_media_manager.db.session import create_engine_from_settings, session_factory
+from drone_media_manager.progress import terminal_progress
 
 
 def main(
@@ -39,12 +40,14 @@ def main(
                 operation = (
                     preview_manifest if args.command == "preview" else import_manifest
                 )
-                report = operation(
-                    session,
-                    settings.omv_root,
-                    args.manifest,
-                    verify_hash=args.verify_hash,
-                )
+                with terminal_progress() as progress:
+                    report = operation(
+                        session,
+                        settings.omv_root,
+                        args.manifest,
+                        verify_hash=args.verify_hash,
+                        progress=progress,
+                    )
             except (ManifestError, OSError) as error:
                 print(
                     json.dumps(

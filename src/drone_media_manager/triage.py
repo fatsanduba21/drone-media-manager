@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from drone_media_manager.organize import _CATEGORIES, classify_video, probe_video
+from drone_media_manager.progress import NULL_PROGRESS, Progress
 
 _VIDEO = {".mp4"}
 _PHOTO = {".jpg", ".jpeg"}
@@ -45,16 +46,23 @@ def _category(path: Path, prober: Prober) -> str:
     )
 
 
-def plan_sort(folder: Path, *, prober: Prober | None = None) -> list[SortMove]:
+def plan_sort(
+    folder: Path,
+    *,
+    prober: Prober | None = None,
+    progress: Progress = NULL_PROGRESS,
+) -> list[SortMove]:
     """Plan moves for top-level media only; already sorted subfolders are left alone."""
     probe = prober or probe_video
     moves = []
     entries = sorted(folder.iterdir(), key=lambda p: p.name.casefold())
     by_name = {p.name.casefold(): p for p in entries if p.is_file()}
-    for path in entries:
+    media = [p for p in entries if p.is_file() and p.suffix.lower() in _VIDEO | _PHOTO]
+    progress.stage("Classificando por formato", len(media), unit="arquivo")
+    for path in media:
         suffix = path.suffix.lower()
-        if not path.is_file() or suffix not in _VIDEO | _PHOTO:
-            continue
+        progress.note(path.name)
+        progress.advance()
         try:
             category = _category(path, probe)
         except (ValueError, KeyError, TypeError) as error:
@@ -90,9 +98,14 @@ def _move_no_replace(source: Path, target: Path) -> None:
     source.unlink()
 
 
-def apply_sort(moves: list[SortMove]) -> list[tuple[SortMove, str]]:
+def apply_sort(
+    moves: list[SortMove], progress: Progress = NULL_PROGRESS
+) -> list[tuple[SortMove, str]]:
     results = []
+    progress.stage("Movendo", len(moves), unit="arquivo")
     for move in moves:
+        progress.note(move.source.name)
+        progress.advance()
         if move.status != "MOVE" or move.target is None:
             results.append((move, move.status))
             continue

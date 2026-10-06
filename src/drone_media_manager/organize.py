@@ -119,6 +119,7 @@ import math
 import os
 import re
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from uuid import uuid4
@@ -126,6 +127,7 @@ from uuid import uuid4
 from drone_media_manager.domain.enums import PairStatus
 from drone_media_manager.ingest.copy import CopyEngine, CopyItem
 from drone_media_manager.ingest.inventory import build_inventory
+from drone_media_manager.progress import NULL_PROGRESS, Progress
 from drone_media_manager.sources.discovery import (
     FilesystemReadOnlySource,
     source_from_explicit_path,
@@ -159,21 +161,29 @@ def _slug(value: str) -> str:
     return f"x-{slug}" if slug in _RESERVED else slug
 
 
-def _hash_path(path: Path) -> str:
+def _hash_path(path: Path, on_bytes: Callable[[int], None] | None = None) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
             digest.update(block)
+            if on_bytes is not None:
+                on_bytes(len(block))
     return digest.hexdigest()
 
 
-def _hash_source(source: FilesystemReadOnlySource, entry: SourceEntry) -> str:
+def _hash_source(
+    source: FilesystemReadOnlySource,
+    entry: SourceEntry,
+    on_bytes: Callable[[int], None] | None = None,
+) -> str:
     if source.stat(entry) != entry.stat:
         raise ValueError(f"source changed before hashing: {entry.relative_path}")
     digest = hashlib.sha256()
     with source.open_read(entry) as stream:
         for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
             digest.update(block)
+            if on_bytes is not None:
+                on_bytes(len(block))
     if source.stat(entry) != entry.stat:
         raise ValueError(f"source changed during hashing: {entry.relative_path}")
     return digest.hexdigest()
@@ -211,19 +221,23 @@ class OrganizePlan:
             return "CONFLICT"
         return "ALREADY_OK" if _hash_path(target) == planned.sha256 else "CONFLICT"
 
-    def preview(self) -> dict[str, Any]:
-        file_actions = [
-            {
-                "asset_id": item.asset_id,
-                "kind": item.kind,
-                "source": str(item.entry.absolute_path),
-                "destination": str(self.output_root / Path(item.relative_path)),
-                "relative_path": item.relative_path,
-                "sha256": item.sha256,
-                "status": self.file_state(item),
-            }
-            for item in self.files
-        ]
+    def preview(self, progress: Progress = NULL_PROGRESS) -> dict[str, Any]:
+        progress.stage("Conferindo o destino", len(self.files), unit="arquivo")
+        file_actions = []
+        for item in self.files:
+            progress.note(Path(item.relative_path).name)
+            file_actions.append(
+                {
+                    "asset_id": item.asset_id,
+                    "kind": item.kind,
+                    "source": str(item.entry.absolute_path),
+                    "destination": str(self.output_root / Path(item.relative_path)),
+                    "relative_path": item.relative_path,
+                    "sha256": item.sha256,
+                    "status": self.file_state(item),
+                }
+            )
+            progress.advance()
         return {
             "trip": {
                 "name": self.trip_name,
@@ -272,6 +286,7 @@ def build_plan(
     people: str | None = None,
     capture_date: str | None = None,
     ffprobe: str = "ffprobe",
+    progress: Progress = NULL_PROGRESS,
 ) -> OrganizePlan:
     source_root = Path(source_path).expanduser().resolve(strict=True)
     if not source_root.is_dir():
@@ -319,6 +334,7 @@ def build_plan(
     if capture_date is not None:
         date.fromisoformat(capture_date)
     source = FilesystemReadOnlySource(source_from_explicit_path(source_root))
+    progress.stage("Lendo a origem", None)
     inventory = build_inventory(source)
     all_entries = sorted(
         source.iter_files(), key=lambda item: item.relative_path.as_posix().casefold()
@@ -362,9 +378,15 @@ def build_plan(
         for entry in all_entries
         if entry.relative_path.suffix.casefold() in {".jpg", ".jpeg"}
     )
+    progress.stage(
+        "Origem: hash e ffprobe",
+        sum(p.stat.size + (s.stat.size if s else 0) for p, s in candidates),
+        unit="B",
+    )
     for primary, srt in candidates:
+        progress.note(primary.relative_path.name)
         try:
-            primary_hash = _hash_source(source, primary)
+            primary_hash = _hash_source(source, primary, progress.advance)
             identity = f"{source.descriptor.volume_identity}\0{primary.stat.file_identity}\0{primary_hash}"
             asset_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()
             if asset_id in seen_ids:
@@ -442,7 +464,7 @@ def build_plan(
                 "srt_path": str(srt.absolute_path) if srt else None,
                 "source_sha256": primary_hash,
             }
-            srt_hash = _hash_source(source, srt) if srt else None
+            srt_hash = _hash_source(source, srt, progress.advance) if srt else None
             record = {
                 "asset_id": asset_id,
                 "trip": {"name": trip_name, "slug": trip_slug, "external_id": None},
@@ -553,7 +575,9 @@ def _compatible_manifest(
     return old_assets, conflicts
 
 
-def apply_plan(plan: OrganizePlan) -> dict[str, Any]:
+def apply_plan(
+    plan: OrganizePlan, progress: Progress = NULL_PROGRESS
+) -> dict[str, Any]:
     if plan.errors:
         return {
             "status": "ERROR",
@@ -563,7 +587,10 @@ def apply_plan(plan: OrganizePlan) -> dict[str, Any]:
     manifest_path = plan.output_root / plan.trip_slug / "MANIFESTO.json"
     old_assets, conflicts = _compatible_manifest(plan, manifest_path)
     states: list[tuple[PlannedFile, str]] = []
+    progress.stage("Conferindo o destino", len(plan.files), unit="arquivo")
     for item in plan.files:
+        progress.note(Path(item.relative_path).name)
+        progress.advance()
         try:
             state = plan.file_state(item)
             states.append((item, state))
@@ -580,6 +607,13 @@ def apply_plan(plan: OrganizePlan) -> dict[str, Any]:
             "counts": {"CREATED": 0, "ALREADY_OK": 0},
         }
     counts = {"CREATED": 0, "ALREADY_OK": 0}
+    # Each new file is read three times: copy, partial check, final check.
+    progress.stage(
+        "Copiando e verificando",
+        3
+        * sum(item.entry.stat.size for item, state in states if state != "ALREADY_OK"),
+        unit="B",
+    )
     engine = CopyEngine(plan.source)
     mapper = RootMapper(plan.output_root)
     try:
@@ -592,14 +626,21 @@ def apply_plan(plan: OrganizePlan) -> dict[str, Any]:
             partial = (
                 final_path.parent / f".{final_path.name}.{item.asset_id[:8]}.partial"
             )
+            progress.note(final_path.name)
+            copied = [0]
+
+            def on_copy(total: int, seen: list[int] = copied) -> None:
+                progress.advance(total - seen[0])
+                seen[0] = total
+
             outcome = engine.copy_or_resume(
-                CopyItem(item.asset_id, item.entry, partial)
+                CopyItem(item.asset_id, item.entry, partial), progress=on_copy
             )
             if outcome.status != "COPIED" or outcome.source_sha256 != item.sha256:
                 raise ValueError(
                     f"copy interrupted or source changed: {item.relative_path}"
                 )
-            if _hash_path(partial) != item.sha256:
+            if _hash_path(partial, progress.advance) != item.sha256:
                 raise ValueError(f"partial verification failed: {item.relative_path}")
             if final_path.exists():
                 if _hash_path(final_path) != item.sha256:
@@ -610,7 +651,7 @@ def apply_plan(plan: OrganizePlan) -> dict[str, Any]:
                 counts["ALREADY_OK"] += 1
                 continue
             os.rename(partial, final_path)
-            if _hash_path(final_path) != item.sha256:
+            if _hash_path(final_path, progress.advance) != item.sha256:
                 raise ValueError(f"final verification failed: {item.relative_path}")
             counts["CREATED"] += 1
         merged = {item["asset_id"]: item for item in old_assets}
@@ -642,6 +683,7 @@ def apply_plan(plan: OrganizePlan) -> dict[str, Any]:
             "orphan_srt": plan.orphan_srt,
             "unsupported": plan.unsupported,
         }
+        progress.stage("Gravando MANIFESTO.json", None)
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = manifest_path.parent / f".MANIFESTO.{uuid4().hex}.partial"
         try:

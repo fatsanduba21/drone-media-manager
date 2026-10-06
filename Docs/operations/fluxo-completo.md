@@ -24,6 +24,13 @@ flowchart TD
     end
 ```
 
+`dmm-organize`, `dmm-catalog` e `dmm-derivatives` mostram o progresso no
+terminal: barra com percentual quando o trabalho é conhecido (bytes lidos,
+arquivos, miniaturas) e spinner nas etapas sem tamanho conhecido (listar a
+origem, ler o manifesto, gravar no banco). O progresso vai para o stderr, então
+o relatório JSON no stdout continua utilizável em pipes; ele some quando a
+saída não é um terminal ou com `DMM_NO_PROGRESS=1`.
+
 Os exemplos usam a viagem `D:\Drone_Temp\Caconde`. Execute os comandos `uv`
 a partir de `C:\dev-apps\drone-orgnize`, depois de `. .\scripts\dev-env.ps1`.
 
@@ -109,9 +116,18 @@ leem cada arquivo inteiro, rode-os com o OMV na rede local, não via Tailscale.
 
 ### 7. Importar no catálogo
 
+O `.env` é lido pelo DMM, mas não define variáveis no shell: `$DMM_OMV_ROOT`
+fica vazia no terminal e o importador recusa o caminho (`unsafe path`). Leia a
+raiz pelo próprio DMM:
+
 ```bash
-uv run dmm-catalog import "$DMM_OMV_ROOT/caconde/MANIFESTO.json"
+root=$(uv run python -c 'from drone_media_manager.config import get_server_settings; print(get_server_settings().omv_root)')
+uv run dmm-catalog preview "$root/caconde/MANIFESTO.json"
+uv run dmm-catalog import "$root/caconde/MANIFESTO.json"
 ```
+
+O manifesto precisa estar sob essa raiz, que deve ser a montagem no Mac da
+mesma pasta usada como `--output-omv` no Windows.
 
 Ver [mac-server.md](mac-server.md#phase-2a-import-the-phase-1-editorial-manifest).
 

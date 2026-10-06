@@ -19,6 +19,7 @@ from drone_media_manager.db.models.catalog import (
     ManifestImport,
 )
 from drone_media_manager.db.models.ingest import Trip
+from drone_media_manager.progress import NULL_PROGRESS, Progress
 
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _SLUG = re.compile(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\Z")
@@ -216,7 +217,12 @@ def load_manifest(root: Path, manifest_path: Path) -> ParsedManifest:
 
 
 def _file_state(
-    root: Path, rel: str, sha: str, verified: bool, verify_hash: bool
+    root: Path,
+    rel: str,
+    sha: str,
+    verified: bool,
+    verify_hash: bool,
+    progress: Progress = NULL_PROGRESS,
 ) -> tuple[str, int | None]:
     path = resolve_omv_path(root, rel)
     if not path.is_file():
@@ -229,12 +235,18 @@ def _file_state(
         with path.open("rb") as stream:
             for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
                 digest.update(block)
+                progress.advance(len(block))
         if digest.hexdigest() != sha:
             return "HASH_MISMATCH", size
     return "AVAILABLE", size
 
 
-def _plans(root: Path, asset: dict[str, Any], verify_hash: bool) -> list[_FilePlan]:
+def _plans(
+    root: Path,
+    asset: dict[str, Any],
+    verify_hash: bool,
+    progress: Progress = NULL_PROGRESS,
+) -> list[_FilePlan]:
     output = asset["output"]
     verified = output["verification_status"] == "VERIFIED"
     main = output["video_relative_path"] or output["photo_relative_path"]
@@ -243,13 +255,32 @@ def _plans(root: Path, asset: dict[str, Any], verify_hash: bool) -> list[_FilePl
         specs.append(("SRT", output["srt_relative_path"], output["srt_sha256"]))
     result = []
     for role, rel, sha in specs:
-        status, size = _file_state(root, rel, sha, verified, verify_hash)
+        status, size = _file_state(root, rel, sha, verified, verify_hash, progress)
         result.append(_FilePlan(role, rel, sha, status, size))
     return result
 
 
+def _hash_total(root: Path, assets: tuple[dict[str, Any], ...]) -> int:
+    total = 0
+    for asset in assets:
+        output = asset["output"]
+        if output.get("verification_status") != "VERIFIED":
+            continue
+        for key in ("video_relative_path", "photo_relative_path", "srt_relative_path"):
+            if output.get(key):
+                try:
+                    total += resolve_omv_path(root, output[key]).stat().st_size
+                except OSError:
+                    pass
+    return total
+
+
 def _preview(
-    session: Session, root: Path, manifest: ParsedManifest, verify_hash: bool
+    session: Session,
+    root: Path,
+    manifest: ParsedManifest,
+    verify_hash: bool,
+    progress: Progress = NULL_PROGRESS,
 ) -> tuple[
     ImportReport,
     list[
@@ -268,12 +299,21 @@ def _preview(
         report.errors.append("Trip slug already belongs to a different name")
     planned = []
     seen_hashes: set[str] = set()
+    if verify_hash:
+        progress.stage(
+            "Conferindo hashes no OMV", _hash_total(root, manifest.assets), unit="B"
+        )
+    else:
+        progress.stage("Conferindo arquivos", len(manifest.assets), unit="asset")
     for asset in manifest.assets:
         asset_id = asset["asset_id"]
+        if not verify_hash:
+            progress.advance()
         existing = session.scalar(
             select(CatalogAsset).where(CatalogAsset.asset_id == asset_id)
         )
-        specs = _plans(root, asset, verify_hash)
+        progress.note(asset_id[:8])
+        specs = _plans(root, asset, verify_hash, progress)
         old_files = (
             {
                 row.role: row
@@ -353,22 +393,35 @@ def _preview(
 
 
 def preview_manifest(
-    session: Session, root: Path, manifest_path: Path, *, verify_hash: bool = False
+    session: Session,
+    root: Path,
+    manifest_path: Path,
+    *,
+    verify_hash: bool = False,
+    progress: Progress = NULL_PROGRESS,
 ) -> ImportReport:
+    progress.stage("Lendo o manifesto", None)
     manifest = load_manifest(root, manifest_path)
-    report, _, _ = _preview(session, root, manifest, verify_hash)
+    report, _, _ = _preview(session, root, manifest, verify_hash, progress)
     return report
 
 
 def import_manifest(
-    session: Session, root: Path, manifest_path: Path, *, verify_hash: bool = False
+    session: Session,
+    root: Path,
+    manifest_path: Path,
+    *,
+    verify_hash: bool = False,
+    progress: Progress = NULL_PROGRESS,
 ) -> ImportReport:
+    progress.stage("Lendo o manifesto", None)
     manifest = load_manifest(root, manifest_path)
-    report, planned, trip = _preview(session, root, manifest, verify_hash)
+    report, planned, trip = _preview(session, root, manifest, verify_hash, progress)
     if report.conflicts:
         report.created_assets = 0
         report.created_files = 0
         return report
+    progress.stage("Gravando no catálogo", None)
     try:
         if trip is None:
             trip = Trip(
