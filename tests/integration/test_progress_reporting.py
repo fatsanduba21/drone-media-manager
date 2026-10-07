@@ -86,7 +86,8 @@ def test_organize_catalog_and_derivatives_bars_complete(
     labels = [s["label"] for s in progress.stages]
     assert labels[0] == "Lendo a origem" and labels[-1] == "Gravando MANIFESTO.json"
     assert progress.bars() == [
-        ("Origem: hash e ffprobe", 6000, 6000),
+        ("Conferindo vídeos", 1, 1),
+        ("Origem: hash", 6000, 6000),
         ("Conferindo o destino", 3, 3),
         ("Conferindo o destino", 3, 3),
         ("Copiando e verificando", 18000, 18000),

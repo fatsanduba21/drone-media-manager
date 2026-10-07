@@ -57,7 +57,16 @@ def probe_video(
             timeout=timeout,
             check=True,
         )
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+    except subprocess.CalledProcessError as error:
+        detail = str(error.stderr or "").strip()
+        if "moov atom not found" in detail:
+            raise ValueError(
+                "MP4 incompleto (sem o índice 'moov'): a exportação foi "
+                "interrompida; reexporte o arquivo"
+            ) from error
+        last_line = detail.splitlines()[-1] if detail else f"exit {error.returncode}"
+        raise ValueError(f"ffprobe failed: {last_line}") from error
+    except (OSError, subprocess.TimeoutExpired) as error:
         raise ValueError(f"ffprobe failed for {path}: {error}") from error
     try:
         result = json.loads(completed.stdout)
@@ -378,8 +387,26 @@ def build_plan(
         for entry in all_entries
         if entry.relative_path.suffix.casefold() in {".jpg", ".jpeg"}
     )
+    # ffprobe reads only the header, so broken exports (e.g. an interrupted
+    # LosslessCut export without its moov index) surface before hashing.
+    videos = [
+        p
+        for p, _ in candidates
+        if p.relative_path.suffix.casefold() not in {".jpg", ".jpeg"}
+    ]
+    probed: dict[Path, dict[str, Any]] = {}
+    progress.stage("Conferindo vídeos", len(videos), unit="vídeo")
+    for primary in videos:
+        progress.note(primary.relative_path.name)
+        try:
+            probed[primary.relative_path] = probe_video(primary.absolute_path, ffprobe)
+        except ValueError as error:
+            errors.append(f"{primary.relative_path}: {error}")
+        progress.advance()
+    if len(probed) != len(videos):
+        candidates = []
     progress.stage(
-        "Origem: hash e ffprobe",
+        "Origem: hash",
         sum(p.stat.size + (s.stat.size if s else 0) for p, s in candidates),
         unit="B",
     )
@@ -398,7 +425,7 @@ def build_plan(
                 metadata = None
                 classification = "FOTOS"
             else:
-                metadata = probe_video(primary.absolute_path, ffprobe)
+                metadata = probed[primary.relative_path]
                 classification = classify_video(
                     int(metadata["encoded_width"]),
                     int(metadata["encoded_height"]),

@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from subprocess import CompletedProcess
+from subprocess import CalledProcessError, CompletedProcess
 
 import pytest
 
@@ -76,3 +76,28 @@ def test_probe_uses_display_matrix_when_rotation_field_is_absent(
     metadata = probe_video(Path("clip.mp4"))
     assert metadata["rotation_degrees"] == 90
     assert (metadata["display_width"], metadata["display_height"]) == (2160, 3840)
+
+
+def test_probe_reports_interrupted_export(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(*args: object, **kwargs: object) -> CompletedProcess[str]:
+        raise CalledProcessError(
+            1,
+            ["ffprobe"],
+            "",
+            "[mov,mp4 @ 0x1] moov atom not found\nclip.mp4: Invalid data found\n",
+        )
+
+    monkeypatch.setattr("drone_media_manager.organize.subprocess.run", fake_run)
+    with pytest.raises(ValueError, match="MP4 incompleto.*reexporte"):
+        probe_video(Path("clip.mp4"))
+
+
+def test_probe_failure_shows_last_stderr_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(*args: object, **kwargs: object) -> CompletedProcess[str]:
+        raise CalledProcessError(1, ["ffprobe"], "", "first\nInvalid data found\n")
+
+    monkeypatch.setattr("drone_media_manager.organize.subprocess.run", fake_run)
+    with pytest.raises(ValueError, match=r"^ffprobe failed: Invalid data found$"):
+        probe_video(Path("clip.mp4"))

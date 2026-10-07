@@ -297,3 +297,30 @@ def test_existing_legacy_manifest_replays_without_renaming(
     assert result["status"] == "APPLIED"
     assert result["counts"] == {"CREATED": 0, "ALREADY_OK": 4}
     assert manifest_path.read_bytes() == before
+
+
+def test_incomplete_export_is_reported_before_hashing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def probe(path: Path, ffprobe: str = "ffprobe") -> dict[str, object]:
+        if path.stem == "vertical":
+            raise ValueError("MP4 incompleto (sem o índice 'moov')")
+        return _probe(path, ffprobe)
+
+    hashed: list[str] = []
+
+    def no_hash(source: object, entry: object, on_bytes: object = None) -> str:
+        hashed.append(str(entry))
+        raise AssertionError("hashing must not start")
+
+    monkeypatch.setattr("drone_media_manager.organize.probe_video", probe)
+    monkeypatch.setattr("drone_media_manager.organize._hash_source", no_hash)
+    source = _source(tmp_path)
+    omv = tmp_path / "omv"
+    omv.mkdir()
+
+    plan = build_plan(source, omv, "Caconde")
+
+    assert plan.errors == ["vertical.mp4: MP4 incompleto (sem o índice 'moov')"]
+    assert hashed == [] and plan.files == []
+    assert apply_plan(plan)["status"] == "ERROR"
